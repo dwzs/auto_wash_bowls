@@ -453,98 +453,55 @@ class EllipseExtract:
         return sorted_ellipses, sorted_confidences
 
 
-    def process_image(self, image_path, min_points=None, show_plot=True):
-        """处理图像：灰度化、边缘检测、椭圆拟合"""
+    def process_frame(self, frame, min_points=None):
+        """
+        Process a single frame for real-time applications
+        
+        Parameters:
+            frame: Input frame/image (BGR format)
+            min_points: Minimum number of points for a valid point set
+            
+        Returns:
+            frame_with_ellipses: Frame with detected ellipses drawn on it
+            detected_ellipses: List of detected ellipses
+            confidences: Confidence values for detected ellipses
+        """
         if min_points is None:
             min_points = self.min_points
-            
-        # 创建字典保存每个步骤的执行时间
-        step_times = {}
-        total_start_time = time.time()
         
-        # 1. 读取并预处理图像
-        step_start = time.time()
-        image = cv2.imread(image_path)
-        if image is None:
-            print(f"无法读取图像: {image_path}")
-            return
+        # Store original image
+        self.original_image = frame
         
-        # 输出图像基本信息
-        height, width = image.shape[:2]
-        channels = 1 if len(image.shape) == 2 else image.shape[2]
-        file_size = os.path.getsize(image_path) / 1024  # KB
-        
-        print("\n===== 图像基本信息 =====")
-        print(f"图像路径: {image_path}")
-        print(f"图像尺寸: {width}×{height} 像素")
-        print(f"颜色通道: {channels}")
-        print(f"数据类型: {image.dtype}")
-        print(f"文件大小: {file_size:.2f} KB")
-        print(f"像素总数: {width * height}")
-        
-        # 存储原始图像
-        self.original_image = image
-        step_times['1_load_image'] = time.time() - step_start
-        
-        # 2. 灰度与边缘处理
-        step_start = time.time()
-        self.gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        # Convert to grayscale & edge detection
+        self.gray_image = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         blurred = cv2.GaussianBlur(self.gray_image, self.blur_kernel_size, 0)
         edges = cv2.Canny(blurred, self.canny_threshold1, self.canny_threshold2)
         self.edge_image = edges
-        step_times['2_edge_detection'] = time.time() - step_start
-
-        # 3. 查找连续点集并拟合椭圆
-        step_start = time.time()
-        self.point_sets = self.find_continuous_points(edges, min_points)
-        step_times['3_find_points'] = time.time() - step_start
         
-        step_start = time.time()
+        # Find point sets and fit ellipses
+        self.point_sets = self.find_continuous_points(edges, min_points)
         self.ellipses, self.all_candidates, self.confidences = self.fit_ellipses(self.point_sets)
-        step_times['4_fit_ellipses'] = time.time() - step_start
-
-        # 4. 筛选椭圆
-        step_start = time.time()
+        
+        # Filter ellipses
         filtered_indices = self.filter_ellipses(self.ellipses)
         self.ellipses = [self.ellipses[i] for i in filtered_indices]
         self.confidences = [self.confidences[i] for i in filtered_indices]
-        step_times['5_filter_ellipses'] = time.time() - step_start
-
-        # 5. 创建过滤后的边缘图像
-        step_start = time.time()
-        self._create_filtered_edge_image()
-        step_times['6_create_filtered_edge'] = time.time() - step_start
-
-        # 6. 绘制结果
-        step_start = time.time()
-        result_images = self.draw_shapes(self.confidence_threshold)
-        step_times['7_draw_shapes'] = time.time() - step_start
         
-        # 7. 显示和保存结果
-        step_start = time.time()
-        if show_plot and result_images:
-            self._display_results(result_images, min_points)
+        # Draw ellipses on frame
+        frame_with_ellipses = frame.copy()
         
-        if result_images:
-            self.save_results(result_images)
-        step_times['8_display_save_results'] = time.time() - step_start
+        if self.ellipses and self.confidences:
+            for i, (ellipse, confidence) in enumerate(zip(self.ellipses, self.confidences)):
+                if confidence >= self.confidence_threshold:
+                    cv2.ellipse(frame_with_ellipses, ellipse, self.ellipse_params['color'], 
+                                self.ellipse_params['line_width'])
+                    # Display confidence
+                    center_x, center_y = int(ellipse[0][0]), int(ellipse[0][1])
+                    cv2.putText(frame_with_ellipses, f"{confidence:.2f}", 
+                                (center_x - 20, center_y), 
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
         
-        # 计算总执行时间
-        total_time = time.time() - total_start_time
-        step_times['total'] = total_time
-        
-        # 打印执行时间统计
-        print("\n===== 处理步骤耗时统计 =====")
-        print(f"{'步骤':<30}{'耗时(秒)':<15}{'占比':<10}")
-        print("-" * 55)
-        for step, duration in step_times.items():
-            if step != 'total':
-                percentage = (duration / total_time) * 100
-                print(f"{step[2:].replace('_', ' '):<30}{duration:.6f}{'':>5}{percentage:>6.2f}%")
-        print("-" * 55)
-        print(f"{'总耗时':<30}{total_time:.6f}")
-        
-        return result_images if result_images else None
+        return frame_with_ellipses, self.ellipses, self.confidences
 
 
 if __name__ == "__main__":

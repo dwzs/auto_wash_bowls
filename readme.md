@@ -16,3 +16,14 @@
 5. 每组点集的最高置信度椭圆画在“3” 上
 6. 每组点集的最高置信度椭圆画在“2” 上
 7. 高于阈值置信度的椭圆画在原始图上
+
+
+EllipseExtracter
+    get_original_image()
+    get_gray_image()
+    get_edge_image()
+    get_edge_filtered_image()
+    get_rgb_ellipses_image()
+    get_edge_ellipses_image()
+    get_ellipse()
+    process_image()
