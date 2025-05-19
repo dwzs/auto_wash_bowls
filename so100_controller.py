@@ -153,7 +153,7 @@ class Arm:
         position = transformi[:3, 3]
         orientation = Rotation.from_matrix(transformi[:3, :3]).as_quat()
         
-        return np.concatenate((position, orientation))
+        return np.concatenate((position, orientation)).tolist()
 
     def get_end_pose(self) -> Optional[Dict[str, np.ndarray]]:
         """获取末端执行器位姿"""
