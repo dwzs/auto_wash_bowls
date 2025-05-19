@@ -21,7 +21,7 @@ class So100_pose_space:
         x = number % self.length
         return x, y, z
 
-    def store_list_for_number(self, number, values):
+    def store_joints_for_number(self, number, values):
         """
         Store a list of five numbers for a given mapped number.
         """
@@ -29,7 +29,7 @@ class So100_pose_space:
             raise ValueError("The list must contain exactly five numbers.")
         self.number_to_list_map[number] = values
 
-    def get_list_for_number(self, number):
+    def get_joints_for_number(self, number):
         """
         Retrieve the list of five numbers for a given mapped number.
         """
@@ -43,10 +43,10 @@ number = pose_space.xyz_to_number(1, 0, 0)
 print(f"坐标 (1, 0, 0) 映射为数值: {number}")
 
 # 存储一个5个数的list
-pose_space.store_list_for_number(number, [10, 20, 30, 40, 50])
+pose_space.store_joints_for_number(number, [10, 20, 30, 40, 50])
 
 # 获取存储的list
-stored_list = pose_space.get_list_for_number(number)
+stored_list = pose_space.get_joints_for_number(number)
 print(f"数值 {number} 存储的list: {stored_list}")
 
 # 将数值映射为xyz坐标
