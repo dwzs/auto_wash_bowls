@@ -9,6 +9,9 @@ class So100_pose_space:
         self.width = width
         self.height = height
         self.joints_interval = 90  #单位度，每个关节间隔joints_interval采一个角度
+        self.thread_pose = 0.1 #单位m，计算最近距离位姿时位置的阈值
+        self.K_positon = 1 #计算最近距离位姿时位置的影响系数
+        self.K_orientation = 0.05 #计算最近距离位姿时姿态的影响系数
         self.number_to_list_map = {}  # Dictionary to store lists for each number
         self.pose_to_joints_map = {}  # Dictionary to store lists for each pose
 
@@ -159,7 +162,9 @@ class So100_pose_space:
             orientation_distance = np.linalg.norm(target_orientation - current_orientation)
 
             # Total distance as a combination of position and orientation distances
-            total_distance = position_distance + orientation_distance
+            # print("position_distance: ", position_distance)
+            # print("orientation_distance: ", orientation_distance)
+            total_distance = position_distance * self.K_positon + orientation_distance * self.K_orientation
 
             if total_distance < min_distance:
                 min_distance = total_distance
@@ -181,14 +186,21 @@ class So100_pose_space:
             for y in range(y_limit[0], y_limit[1], step):
                 for z in range(z_limit[0], z_limit[1], step):
                     # pose = [x, y, z, oretation]
-                    pose = [x, y, z] + oretation
+                    pose = [x/100, y/100, z/100] + oretation  # 单位m
                     closest_pose, joints, distance = self.get_closest_pose_joints(pose, joints_poses_map)
-                    self.pose_to_joints_map[tuple(pose)] = joints
+                    print("distance: ", distance)
+                    if distance < self.thread_pose:
+                        self.pose_to_joints_map[tuple(pose)] = joints
         
         return self.pose_to_joints_map
 
+    def save_joints_poses_map(self, file_path):
+        # Convert tuple keys to strings
+        serializable_map = {str(k): v for k, v in self.joints_poses_map.items()}
+        with open(file_path, 'w') as f:
+            json.dump(serializable_map, f)
 
-    def save_data(self, file_path):
+    def save_poses_joints_map(self, file_path):
         # Convert tuple keys to strings
         serializable_map = {str(k): v for k, v in self.pose_to_joints_map.items()}
         with open(file_path, 'w') as f:
@@ -218,20 +230,20 @@ print("joints_poses_map length: ", len(joints_poses_map))
 time_end = time.time()
 print("time cost: ", time_end - time_start, "s")
 
-
 time_start = time.time()
 pose_to_joints_map = pose_space.iterate_positions()
-# print("pose_to_joints_map: ", pose_to_joints_map)
 print("pose_to_joints_map length: ", len(pose_to_joints_map))
 time_end = time.time()
 print("time cost: ", time_end - time_start, "s")
 
 
+# pose_space.joints_poses_map = joints_poses_map  # Store the map in the class
+# pose_space.save_joints_poses_map("joints_poses_map.json")
+# pose_space.save_poses_joints_map("pose_to_joints_map.json")
 
-pose_space.save_data("pose_to_joints_map.json")
-
-
-
+# pose0 = [0, 0, 0, 0, 0.71, 0, 0.71]
+# joints_0 = pose_space.pose_to_joints_map[tuple(pose0)]
+# print("joints_0: ", joints_0)
 
 
 
