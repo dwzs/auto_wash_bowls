@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import time
 import os
-from extract_ellipse import EllipseExtracter
+from ellipse_extracter import EllipseExtracter
 
 
 if __name__ == "__main__":

@@ -180,7 +180,7 @@ class Arm:
         # Use the forward_kinematics method
         tcp_pose = self.forward_kinematics(tcp_joint_angles)
         
-        return format_to_2dp(tcp_pose).tolist()
+        return format_to_2dp(tcp_pose)
     
     def set_joints(self, positions: np.ndarray, wait=True, timeout=10.0, tolerance=0.01) -> bool:
         if not self._robot.is_connected():
