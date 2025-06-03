@@ -309,4 +309,60 @@
     <axis
       xyz="0 1 0" />
   </joint>
+  
+  <link
+    name="tcp">
+    <inertial>
+      <origin
+        xyz="0.0 0.0 0.0"
+        rpy="0 0 0" />
+      <mass
+        value="0.0929859131176897" />
+      <inertia
+        ixx="4.3328249304211E-05"
+        ixy="7.09654328670947E-06"
+        ixz="5.99838530879484E-07"
+        iyy="3.04451747368212E-05"
+        iyz="-1.58743247545413E-07"
+        izz="5.02460913506734E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://SO_5DOF_ARM100_8j_URDF.SLDASM/meshes/Fixed_Jaw.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://SO_5DOF_ARM100_8j_URDF.SLDASM/meshes/Fixed_Jaw.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="j_tcp"
+    type="fixed">
+    <origin
+      xyz="0 -0.1 0"
+      rpy="0 0 0" />
+    <parent
+      link="Fixed_Jaw" />
+    <child
+      link="tcp" />
+    <axis
+      xyz="0 1 0" />
+  </joint>
+  
+
 </robot>

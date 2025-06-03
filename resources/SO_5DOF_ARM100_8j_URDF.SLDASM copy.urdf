@@ -309,4 +309,57 @@
     <axis
       xyz="0 1 0" />
   </joint>
+  <link
+    name="Moving Jaw">
+    <inertial>
+      <origin
+        xyz="-0.00161744605468241 -0.0303472584046471 0.000449645961853651"
+        rpy="0 0 0" />
+      <mass
+        value="0.0202443794940372" />
+      <inertia
+        ixx="1.10911325081525E-05"
+        ixy="-5.35076503033314E-07"
+        ixz="-9.46105662101403E-09"
+        iyy="3.03576451001973E-06"
+        iyz="-1.71146075110632E-07"
+        izz="8.9916083370498E-06" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://SO_5DOF_ARM100_8j_URDF.SLDASM/meshes/Moving Jaw.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://SO_5DOF_ARM100_8j_URDF.SLDASM/meshes/Moving Jaw.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="Jaw"
+    type="continuous">
+    <origin
+      xyz="-0.0202 -0.0244 0"
+      rpy="3.1416 0 3.1416" />
+    <parent
+      link="Fixed_Jaw" />
+    <child
+      link="Moving Jaw" />
+    <axis
+      xyz="0 0 1" />
+  </joint>
 </robot>

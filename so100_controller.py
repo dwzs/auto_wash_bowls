@@ -2,14 +2,20 @@
 # -*- coding: utf-8 -*-
 """SO-100机器人控制接口"""
 
+import json
 import rclpy
 import numpy as np
 import time
+import logging
 from typing import List, Union, Optional, Dict, Any, Tuple
 from rclpy.node import Node
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Float64MultiArray
 from scipy.spatial.transform import Rotation
+from roboticstoolbox import ERobot
+import os
+from spatialmath import SE3
+import colorlog
 
 
 def format_to_2dp(value: Any) -> Any:
@@ -53,11 +59,14 @@ class Gripper:
         self._joint_index = 5  # 夹爪关节索引
         self.close_position = 1.0  # 夹爪关闭位置值
         self.open_position = 0.0   # 夹爪打开位置值
+        
+        # 配置日志
+        self.logger = logging.getLogger('so100_gripper')
     
     def get_joint(self) -> Optional[float]:
         """获取夹爪位置"""
         if not self._robot.is_connected():
-            self._robot.get_logger().warn("机器人未连接")
+            self.logger.warning("机器人未连接")
             return None
         
         joints = self._robot.get_joints()
@@ -80,9 +89,11 @@ class Gripper:
         return self._robot.set_joints(full_joint_positions, wait, timeout, tolerance)
     
     def open(self, wait=True, timeout=5.0) -> bool:
+        self.logger.info("打开夹爪")
         return self.set_joint(self.open_position, wait, timeout)
     
     def close(self, wait=True, timeout=5.0) -> bool:
+        self.logger.info("关闭夹爪")
         return self.set_joint(self.close_position, wait, timeout)
 
 
@@ -97,100 +108,364 @@ class Arm:
         """
         self._robot = robot_instance
         self.joint_index = [0, 1, 2, 3, 4]  # 机械臂关节索引
-        # self.chain = self._build_chain_manually()
         
-        self.joints_data = [
-            {"translation": [0, 0, 0],            "orientation": [0, 0, 0], "rotate_axis": [0, 0, 1], "joint_limit": [-0, 0]}, # 基座虚拟关节
-            {"translation": [0, -0.0452, 0.0165], "orientation": [1.5708, 0, 0], "rotate_axis": [0, 1, 0], "joint_limit": [-2, 2]},
-            {"translation": [0, 0.1025, 0.0306],  "orientation": [0, 0, 0], "rotate_axis": [1, 0, 0], "joint_limit": [-1.8, 1.8]},
-            {"translation": [0, 0.11257, 0.028],  "orientation": [0, 0, 0], "rotate_axis": [1, 0, 0], "joint_limit": [-1.8, 1.57]},
-            {"translation": [0, 0.0052, 0.1349],  "orientation": [0, 0, 0], "rotate_axis": [1, 0, 0], "joint_limit": [-3.6, 0.3] },
-            {"translation": [0, -0.0601, 0],      "orientation": [0, 0, 0], "rotate_axis": [0, 1, 0], "joint_limit": [-1.57, 1.57]},
-            {"translation": [0, -0.1, 0],         "orientation": [0, 0, 0], "rotate_axis": [0, 0, 1], "joint_limit": [0, 0]} # tcp 虚拟关节
-        ]
+        # 配置日志
+        self.logger = logging.getLogger('so100_arm')
 
-    def get_joints(self) -> Optional[np.ndarray]:
-        """获取机械臂关节角度（不包括夹爪）"""
-        if not self._robot.is_connected():
-            self._robot.get_logger().warn("机器人未连接")
-            return None
+        # 加载机器人模型用于逆解
+        self._load_robot_model()
+        self._offset_calibration_data()
+        self.line_joints = []
+
+    def _offset_calibration_data(self):
+        """根据标定数据计算零位偏移"""
+
+        self.offest_zero = self._robot.init_pose_joints[:5]  
+        self.zero_joints = [0, 0, 0, 0, 0]
+        self.home_joints = [self._robot.home_pose_joints[i] - self.offest_zero[i] for i in range(5)]
+        self.up_joints = [self._robot.up_pose_joints[i] - self.offest_zero[i] for i in range(5)]
         
-        joints = self._robot.get_joints()
-        if joints is None:
-            return None
+        # 计算偏移后的关节限制
+        raw_limits = self._robot.joints_limits
+        self.joints_limits = []
+        for i in range(5):
+            joint_key = str(i+1)
+            if joint_key in raw_limits:
+                joint_limit_dict = raw_limits[joint_key]
+                # 从嵌套字典中提取min和max值
+                try:
+                    raw_min = float(joint_limit_dict["min"])
+                    raw_max = float(joint_limit_dict["max"])
+                except (ValueError, TypeError, KeyError) as e:
+                    self.logger.error(f"关节{i+1}的限制值无法解析: {joint_limit_dict}")
+                    self.joints_limits.append(None)
+                    continue
+                
+                # 应用零位偏移：逻辑限制 = 原始限制 - 零位偏移
+                offset_min = raw_min - self.offest_zero[i]
+                offset_max = raw_max - self.offest_zero[i]
+                self.joints_limits.append([offset_min, offset_max])
+            else:
+                self.logger.warning(f"关节{i+1}的限制未找到")
+                self.joints_limits.append(None)
+
+        print("self.zero_joints: ", self.zero_joints)
+        print("self.home_joints: ", self.home_joints)
+        print("self.up_joints: ", self.up_joints)
+        print("self.joints_limits: ", self.joints_limits)
+
+    def _load_robot_model(self):
+        """加载机器人URDF模型用于逆解计算"""
+        try:
+            # 获取当前脚本所在目录
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            urdf_file = os.path.join(script_dir, 'resources/so100_tcp.urdf')
             
-        # Use list comprehension to get the joint angles at specified indices
-        # return np.array([joints[i] for i in self.joint_index])
-        return [joints[i] for i in self.joint_index]
-    
-    def forward_kinematics(self, joint_angles):
-        """Compute the forward kinematics for the SO-100 robot arm.
+            if os.path.exists(urdf_file):
+                self.robot_model = ERobot.URDF(urdf_file)
+                self.logger.info(f"成功加载URDF模型: {urdf_file}")
+                # print("self.robot_model: ", self.robot_model)
+            else:
+                self.robot_model = None
+                self.logger.warning(f"URDF文件不存在: {urdf_file}")
+        except Exception as e:
+            self.robot_model = None
+            self.logger.error(f"加载URDF模型失败: {e}")
+
+        self.zero_joints = self._robot.init_pose_joints[:5]
+        self.home_joints = self._robot.home_pose_joints[:5]
+        self.up_joints = self._robot.up_pose_joints[:5]
+        
+        limits = self._robot.joints_limits
+        # print("limits: ", limits)
+        self.joints_limits = [limits.get(str(i+1)) for i in range(5)]
+
+        # print("self.zero_joints: ", self.zero_joints)
+        # print("self.home_pose: ", self.home_pose)
+        # print("self.up_pose: ", self.up_pose)
+        # print("self.joints_limits: ", self.joints_limits)
+        self.line_joints = []
+
+    def _create_pose_matrix(self, pose_components):
+        """
+        将位姿列表转换为4x4齐次变换矩阵
+        
+        参数:
+            pose_components (list): 位姿列表 [x, y, z, qx, qy, qz, qw]
+            
+        返回:
+            np.ndarray: 4x4齐次变换矩阵
+        """
+        position = pose_components[:3]
+        quaternion = pose_components[3:]  # [qx, qy, qz, qw]
+
+        # 将四元数转换为旋转矩阵
+        rotation_matrix = Rotation.from_quat(quaternion).as_matrix()
+
+        # 创建齐次变换矩阵
+        pose_matrix = np.eye(4)
+        pose_matrix[:3, :3] = rotation_matrix
+        pose_matrix[:3, 3] = position
+        return pose_matrix
+
+    def _forward_kinematics(self, joint_angles, use_tool=False):
+        """
+        使用roboticstoolbox计算正运动学 (默认计算TCP位姿)
         
         Parameters:
             joint_angles (list): A list of joint angles [j1, j2, j3, j4, j5].
+            use_tool (bool): If True, use the configured TCP. If False, get flange pose.
             
         Returns:
-            np.ndarray: The position and orientation (as a quaternion) of the TCP.
+            list: The position and orientation (as a quaternion) [x, y, z, qx, qy, qz, qw].
         """
-        def transformation_matrix(translation, origin_orientation, rotation, angle):
-            """Create a transformation matrix for a joint."""
-            rot_matrix = Rotation.from_rotvec(np.array(rotation) * angle).as_matrix()
-            origin_rot_matrix = Rotation.from_euler('xyz', origin_orientation).as_matrix()
-            combined_rot_matrix = origin_rot_matrix @ rot_matrix
-            transform = np.eye(4)
-            transform[:3, :3] = combined_rot_matrix
-            transform[:3, 3] = translation
-            return transform
+        if use_tool:
+            end_link = "tcp"
+        else:
+            end_link = "Fixed_Jaw"
+
+        try:
+            # tool_to_use = self.robot_model.tool if use_tool else SE3() # Use identity for flange
+
+            fk_pose_matrix = self.robot_model.fkine(np.array(joint_angles), end=end_link)
+            
+            # 提取位置
+            position = fk_pose_matrix.t
+            
+            # 提取旋转并转换为四元数 [qx, qy, qz, qw]
+            # scipy.spatial.transform.Rotation.as_quat() returns [x, y, z, w]
+            quaternion_xyzw = Rotation.from_matrix(fk_pose_matrix.R).as_quat()
+            
+            # 组合位置和四元数
+            pose_list = list(position) + list(quaternion_xyzw)
+            return pose_list
+            
+        except Exception as e:
+            self._robot.get_logger().error(f"roboticstoolbox正运动学计算出错: {e}")
+            return None
+
+    def _inverse_kinematics(self, target_pose_list, initial_joint_guess=None, mask=None, use_tool=False):
+        """
+        计算逆运动学解 (目标位姿为TCP位姿)
         
-        joint_angles.insert(0, 0)  # 基座关节转角为0
-        transformi = np.eye(4)
-        for i, angle_i in enumerate(joint_angles):
-            joint_i = self.joints_data[i]
-            transformi = transformi @ transformation_matrix(
-                joint_i["translation"], joint_i["orientation"], joint_i["rotate_axis"], angle_i
+        参数:
+            target_pose_list (list): 目标位姿 [x, y, z, qx, qy, qz, qw]
+            initial_joint_guess (list, optional): 关节角度初始猜测值
+            mask (list, optional): 位姿约束掩码 [x, y, z, rx, ry, rz]，1表示约束该自由度
+            
+        返回:
+            list: 关节角度列表，如果求解失败返回None
+        """
+        if use_tool:
+            end_link = "tcp"
+        else:
+            end_link = "Fixed_Jaw"
+
+        try:
+            target_pose_matrix = self._create_pose_matrix(target_pose_list) 
+            
+            # 设置初始猜测值
+            if initial_joint_guess is None:
+                # 使用当前关节角度作为初始猜测
+                current_joints = self.get_joints()
+                if current_joints is None: # Check if get_joints failed
+                    self.logger.error("无法获取当前关节角度作为IK初始猜测值")
+                    return None
+                q_guess = np.array(current_joints)
+            else:
+                q_guess = np.array(initial_joint_guess)
+            
+            # 设置默认掩码（参考ik_roboticstoolbox.py）
+            if mask is None:
+                mask = [1, 1, 1, 0, 1, 1]  # 约束位置和部分旋转
+            
+            # 使用 ik_LM 函数，返回值是元组格式
+            result = self.robot_model.ik_LM(
+                target_pose_matrix, 
+                q0=q_guess, 
+                mask=mask, 
+                end=end_link,
+                tol = 0.001,
+                joint_limits=True,
+                ilimit=1000,  # Increased iteration limit per search
+                slimit=150    # Increased search limit (restarts)
             )
-        
-        position = transformi[:3, 3]
-        orientation = Rotation.from_matrix(transformi[:3, :3]).as_quat()
-        
-        return np.concatenate((position, orientation)).tolist()
-
-    def get_end_pose(self) -> Optional[Dict[str, np.ndarray]]:
-        """获取末端执行器位姿"""
-        if not self._robot.is_connected():
-            self._robot.get_logger().warn("机器人未连接")
-            return None
             
-        arm_joint_angles = self.get_joints()
-
-        # Use the forward_kinematics method
-        tcp_pose = self.forward_kinematics(arm_joint_angles)
-        
-        return format_to_2dp(tcp_pose).tolist()
-
-    def get_tcp_pose(self) -> Optional[Dict[str, np.ndarray]]:
-        """获取末端执行器位姿"""
-        if not self._robot.is_connected():
-            self._robot.get_logger().warn("机器人未连接")
+            # ik_LM 返回 (q, success, iterations, searches, residual)
+            if len(result) >= 2:
+                q_solution, success = result[0], result[1]
+                
+                if success:
+                    self.logger.debug(f"逆解成功: {format_to_2dp(q_solution.tolist())}")
+                    return q_solution.tolist()
+                else:
+                    # 提取更多调试信息
+                    iterations = result[2] if len(result) > 2 else "未知"
+                    searches = result[3] if len(result) > 3 else "未知"
+                    residual = result[4] if len(result) > 4 else "未知"
+                    
+                    self.logger.warning(f"逆解失败，目标位姿: {target_pose_list}")
+                    self.logger.warning(f"逆解失败，迭代次数: {iterations}, 搜索次数: {searches}, 残差: {residual}")
+                    return None
+            else:
+                self.logger.error(f"ik_LM返回值格式异常: {result}")
+                return None
+                
+        except Exception as e:
+            self.logger.error(f"逆解计算出错: {e}")
+            import traceback
+            self.logger.error(traceback.format_exc())
             return None
-            
-        arm_joint_angles = self.get_joints()
-        tcp_joint_angles = arm_joint_angles + [0]
 
-        # Use the forward_kinematics method
-        tcp_pose = self.forward_kinematics(tcp_joint_angles)
+    def flange_move_to_pose(self, target_pose_list, initial_joint_guess=None, mask=None, wait=True, timeout=10.0, tolerance=0.01):
+        """
+        移动法兰到目标位姿
         
+        参数:
+            target_pose_list: 目标位姿，可以是：
+                - [x, y, z] - 只移动位置，保持当前姿态
+                - [x, y, z, qx, qy, qz, qw] - 完整位姿
+            initial_joint_guess: 关节角度初始猜测值
+            mask: 位姿约束掩码
+            wait: 是否等待运动完成
+            timeout: 超时时间
+            tolerance: 到达精度
+            
+        返回:
+            bool: 是否成功
+        """
+        # 处理输入参数，确保包含完整的位姿信息
+        if len(target_pose_list) == 3:
+            # 如果只有位置信息，获取当前姿态
+            current_flange = self.get_flange_pose()
+            if current_flange is None:
+                self.logger.error("无法获取当前法兰姿态")
+                return False
+            
+            # 组合新位置和当前姿态
+            full_target_pose = list(target_pose_list) + current_flange[3:]  # [x,y,z] + [qx,qy,qz,qw]
+            self.logger.info(f"移动法兰到位置: {format_to_2dp(target_pose_list)}, 保持当前姿态")
+            
+        elif len(target_pose_list) == 7:
+            # 完整位姿信息
+            full_target_pose = list(target_pose_list)
+            self.logger.info(f"移动法兰到完整位姿: 位置{format_to_2dp(target_pose_list[:3])}, 姿态{format_to_2dp(target_pose_list[3:])}")
+            
+        else:
+            self.logger.error(f"目标位姿参数长度错误: {len(target_pose_list)}, 应为3或7")
+            return False
+        
+        # 计算逆解
+        joint_solution = self._inverse_kinematics(full_target_pose, initial_joint_guess, mask, use_tool=False)
+        
+        if joint_solution is None:
+            return False
+        
+        # 执行关节运动
+        return self.set_joints(joint_solution, wait, timeout, tolerance)
+
+    def tcp_move_to_pose(self, target_pose_list, initial_joint_guess=None, mask=None, wait=True, timeout=10.0, tolerance=0.01):
+        """
+        移动TCP到目标位姿
+        
+        参数:
+            target_pose_list: 目标位姿，可以是：
+                - [x, y, z] - 只移动位置，保持当前姿态
+                - [x, y, z, qx, qy, qz, qw] - 完整位姿
+            initial_joint_guess: 关节角度初始猜测值
+            mask: 位姿约束掩码
+            wait: 是否等待运动完成
+            timeout: 超时时间
+            tolerance: 到达精度
+            
+        返回:
+            bool: 是否成功
+        """
+        # 处理输入参数，确保包含完整的位姿信息
+        if len(target_pose_list) == 3:
+            # 如果只有位置信息，获取当前姿态
+            current_tcp = self.get_tcp_pose()
+            if current_tcp is None:
+                self.logger.error("无法获取当前TCP姿态")
+                return False
+            
+            # 组合新位置和当前姿态
+            full_target_pose = list(target_pose_list) + current_tcp[3:]  # [x,y,z] + [qx,qy,qz,qw]
+            self.logger.info(f"移动到位置: {format_to_2dp(target_pose_list)}, 保持当前姿态")
+            
+        elif len(target_pose_list) == 7:
+            # 完整位姿信息
+            full_target_pose = list(target_pose_list)
+            self.logger.debug(f"移动到完整位姿: 位置{format_to_2dp(target_pose_list[:3])}, 姿态{format_to_2dp(target_pose_list[3:])}")
+            
+        else:
+            self.logger.error(f"目标位姿参数长度错误: {len(target_pose_list)}, 应为3或7")
+            return False
+        
+        # 计算逆解
+        start_time = time.time()
+        initial_joint_guess = self.get_joints()
+        end_time = time.time()
+        self.logger.debug(f"获取关节角度耗时: {end_time - start_time:.4f} 秒")
+
+        start_time = time.time()
+        joint_solution = self._inverse_kinematics(full_target_pose, initial_joint_guess, mask, use_tool=True)
+        end_time = time.time()
+        self.logger.debug(f"逆运动学计算耗时: {end_time - start_time:.4f} 秒")
+
+        if joint_solution is None:
+            return False
+        
+        # 执行关节运动
+        self.line_joints.append(joint_solution)
+        return self.set_joints(joint_solution, wait, timeout, tolerance)
+
+    def get_joints(self) -> Optional[List[float]]:
+        """获取机械臂关节角度（不包括夹爪），应用零位偏移"""
+        joints = self._robot.get_joints()
+        self.logger.debug(f"获取到的所有关节: {joints}")
+        if joints is None:
+            return None
+        
+        # 获取机械臂关节原始值
+        raw_joints = [joints[i] for i in self.joint_index]
+        
+        # 应用零位偏移
+        offset_joints = [raw - zero for raw, zero in zip(raw_joints, self.offest_zero)]
+        
+        print(f"原始机械臂关节: {raw_joints}")
+        print(f"零位偏移: {self.zero_joints}")
+        print(f"偏移后关节: {offset_joints}")
+        
+        return format_to_2dp(offset_joints)
+    
+
+    def get_flange_pose(self) -> Optional[List[float]]:
+        """获取末端执行器法兰(flange)位姿 [x, y, z, qx, qy, qz, qw]"""
+        arm_joint_angles = self.get_joints()
+        print("arm_joint_angles: ", arm_joint_angles)
+        flange_pose = self._forward_kinematics(arm_joint_angles, use_tool=False)
+        return format_to_2dp(flange_pose)
+
+    def get_tcp_pose(self) -> Optional[List[float]]:
+        """获取TCP位姿 [x, y, z, qx, qy, qz, qw]"""
+        arm_joint_angles = self.get_joints()
+        print("arm_joint_angles: ", arm_joint_angles)
+        tcp_pose = self._forward_kinematics(arm_joint_angles, use_tool=True)
         return format_to_2dp(tcp_pose)
     
-    def set_joints(self, positions: np.ndarray, wait=True, timeout=10.0, tolerance=0.01) -> bool:
-        if not self._robot.is_connected():
-            self._robot.get_logger().warn("机器人未连接")
-            return False
-        
+    def set_joints(self, positions: List[float], wait=True, timeout=10.0, tolerance=0.01) -> bool:
         # 确保关节数量正确
         if len(positions) != len(self.joint_index):
-            self._robot.get_logger().error(f"机械臂关节数量错误: 需要{len(self.joint_index)}个关节位置")
+            self.logger.error(f"机械臂关节数量错误: 需要{len(self.joint_index)}个关节位置")
             return False
+        
+        # 应用零位偏移，将逻辑关节角度转换为原始关节角度
+        raw_positions = [pos + zero for pos, zero in zip(positions, self.offest_zero)]
+        
+        print(f"输入的逻辑关节角度: {format_to_2dp(positions)}")
+        print(f"零位偏移: {self.zero_joints}")
+        print(f"转换后的原始关节角度: {format_to_2dp(raw_positions)}")
         
         # 获取当前夹爪位置
         current_gripper_pos = self._robot.gripper.get_joint()
@@ -198,22 +473,136 @@ class Arm:
             return False
         
         # 构建完整的关节位置数组（包括夹爪）
-        full_joint_positions = np.append(positions, current_gripper_pos)
+        full_joint_positions = raw_positions + [current_gripper_pos]
+        
+        self.logger.debug(f"发送给机器人的完整关节位置: {format_to_2dp(full_joint_positions)}")
         
         # 发送完整的关节命令
+        print("full_joint_positions: ", full_joint_positions)
         return self._robot.set_joints(full_joint_positions, wait, timeout, tolerance)
 
     def move_home(self, wait=True) -> bool:
         """将机械臂移动到初始位置（所有关节角度为0）"""
-        home_positions = np.zeros(len(self.joint_index))
-        return self.set_joints(home_positions, wait=wait)
+        self.logger.info("移动到初始位置")
+        return self.set_joints(self.home_joints, wait=wait)
     
+    def move_up(self, wait=True) -> bool:
+        """将机械臂移动到初始位置（所有关节角度为0）"""
+        self.logger.info("移动到抬起位置")
+        return self.set_joints(self.up_joints, wait=wait)
+    
+    def move_zero(self, wait=True) -> bool:
+        """将机械臂移动到初始位置（所有关节角度为0）"""
+        self.logger.info("移动到初始位置")
+        return self.set_joints(self.zero_joints, wait=wait)
+    
+    def move_line(self, position_a, position_b, wait=True, timeout=10.0, tolerance=0.01):
+        """
+        控制机械臂TCP从A点直线运动到B点
+        
+        参数:
+            position_a: 起始位置 [x, y, z, qx, qy, qz, qw] 或 [x, y, z]
+            position_b: 终止位置 [x, y, z, qx, qy, qz, qw] 或 [x, y, z]
+            wait: 是否等待运动完成
+            timeout: 超时时间
+            tolerance: 到达精度
+            
+        返回:
+            bool: 是否成功完成直线运动
+        """
+        try:
+            # 处理输入参数，确保包含完整的位姿信息
+            def ensure_full_pose(position):
+                if len(position) == 3:
+                    # 如果只有位置信息，获取当前姿态
+                    current_tcp = self.get_tcp_pose()
+                    if current_tcp is None:
+                        # 使用默认姿态 (工具向下)
+                        from scipy.spatial.transform import Rotation
+                        default_quat = Rotation.from_euler('x', 180, degrees=True).as_quat()
+                        return list(position) + list(default_quat)
+                    else:
+                        return list(position) + current_tcp[3:]  # 保持当前姿态
+                elif len(position) == 7:
+                    return list(position)
+                else:
+                    raise ValueError(f"位置参数长度错误: {len(position)}, 应为3或7")
+            
+            pose_a = ensure_full_pose(position_a)
+            pose_b = ensure_full_pose(position_b)
+            
+            self.logger.info(f"开始直线运动: A{format_to_2dp(pose_a[:3])} -> B{format_to_2dp(pose_b[:3])}")
+            
+            # 计算直线距离和插值点数量
+            distance = np.linalg.norm(np.array(pose_b[:3]) - np.array(pose_a[:3]))
+            
+            # 根据距离确定插值点数量 (每1cm一个点)
+            num_points = max(int(distance * 100), 2)  # 至少2个点
+            num_points = min(num_points, 50)  # 最多50个点
+            
+            self.logger.info(f"直线距离: {distance:.3f}m, 插值点数: {num_points}")
+            
+            # 生成直线轨迹点
+            waypoints = []
+            for i in range(num_points + 1):
+                t = i / num_points  # 插值参数 0 到 1
+                
+                # 位置线性插值
+                pos_interp = np.array(pose_a[:3]) + t * (np.array(pose_b[:3]) - np.array(pose_a[:3]))
+                
+                # 姿态球面线性插值 (SLERP)
+                from scipy.spatial.transform import Rotation, Slerp
+                
+                rot_a = Rotation.from_quat(pose_a[3:])
+                rot_b = Rotation.from_quat(pose_b[3:])
+                
+                # 创建球面插值器
+                key_times = [0, 1]
+                key_rots = Rotation.from_quat([pose_a[3:], pose_b[3:]])
+                slerp = Slerp(key_times, key_rots)
+                
+                # 插值姿态
+                rot_interp = slerp(t)
+                quat_interp = rot_interp.as_quat()
+                
+                # 组合完整位姿
+                waypoint = list(pos_interp) + list(quat_interp)
+                waypoints.append(waypoint)
+            
+            # 执行轨迹运动
+            for i, waypoint in enumerate(waypoints):
+                self.logger.debug(f"移动到轨迹点 {i+1}/{len(waypoints)}: {format_to_2dp(waypoint[:3])}")
+                
+                start_time = time.time()
+                if not self.tcp_move_to_pose(waypoint, wait=wait, tolerance=tolerance):
+                    self.logger.error(f"移动到轨迹点 {i+1} 失败")
+                    return False
+                end_time = time.time()
+                self.logger.debug(f"移动到轨迹点 {i+1} 耗时: {end_time - start_time:.4f} 秒")
+            
+            self.logger.debug(f"直线运动关节轨迹: {self.line_joints}")
+            self.logger.info("直线运动完成")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"直线运动过程中发生错误: {e}")
+            import traceback
+            self.logger.error(traceback.format_exc())
+            return False
 
 
 class So100Robot(Node):
     """SO-100机器人控制接口主类"""
     
     def __init__(self):
+        # 配置Python logging with colors (minimal changes)
+        colorlog.basicConfig(
+            level=logging.INFO,
+            format='%(log_color)s[%(levelname)s][%(filename)s:%(lineno)d] %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S'
+        )
+        self.logger = logging.getLogger('so100_controller')
+        
         # 初始化ROS
         if not rclpy.ok():
             rclpy.init()
@@ -223,11 +612,20 @@ class So100Robot(Node):
         
         # 总关节数量
         self.TOTAL_JOINTS_COUNT = 6  # 总关节数量（5个机械臂关节+1个夹爪）
-        self.current_joint_positions = np.zeros(self.TOTAL_JOINTS_COUNT)
+        self.current_joint_positions = [0.0] * self.TOTAL_JOINTS_COUNT
+        self.calibration_file = "so100_calibration.json"
+
+        calibration_data = self._load_joints_limits()
+        self.joints_limits = calibration_data["joint_limits"]
+        self.init_pose_joints = calibration_data["poses_joints"]["init_pose_joints"]
+        self.home_pose_joints = calibration_data["poses_joints"]["home_pose_joints"]
+        self.up_pose_joints = calibration_data["poses_joints"]["up_pose_joints"]
         
+
         # 创建发布器和订阅器
+        self.pub_rate = 1000
         self.simple_command_publisher = self.create_publisher(
-            Float64MultiArray, 'so100_position_commands', 10)
+            Float64MultiArray, 'so100_position_commands', self.pub_rate)
         
         self.joint_state_subscriber = self.create_subscription(
             JointState, 'so100_joint_states', self._joint_state_callback, 10)
@@ -238,106 +636,166 @@ class So100Robot(Node):
         
         # 等待机器人就绪
         self._wait_for_robot(10)
-    
+        
+    def _load_joints_limits(self):
+        """从配置文件加载关节限制"""
+        try:
+            with open(self.calibration_file, 'r', encoding='utf-8') as f:
+                calibration_data = json.load(f)
+            return calibration_data
+        except FileNotFoundError:
+            self.logger.error(f'关节限制配置文件未找到: {self.calibration_file}')
+            raise
+        except json.JSONDecodeError as e:
+            self.logger.error(f'关节限制配置文件格式错误: {e}')
+            raise
+        except Exception as e:
+            self.logger.error(f'关节限制配置文件加载失败: {e}')
+            raise
+
     def _joint_state_callback(self, msg):
         """关节状态回调函数"""
         self.current_joint_positions = msg.position.tolist()
+        # self.logger.debug(f'关节状态: {format_to_2dp(self.current_joint_positions)}')
         if not self.is_robot_connected:
             self.is_robot_connected = True
-            # self.get_logger().info(f'机器人已连接，当前位置: {format_to_2dp(self.current_joint_positions)}')
+            self.logger.info(f'机器人已连接，当前位置: {format_to_2dp(self.current_joint_positions)}')
     
     def _wait_for_robot(self, timeout: float = 10.0) -> bool:
         """等待机器人连接就绪"""
         start_time = time.time()
-        self.get_logger().info('等待机器人连接...')
+        self.logger.info('等待机器人连接...')
         
         while time.time() - start_time < timeout:
             rclpy.spin_once(self, timeout_sec=0.1)
             if self.is_robot_connected:
-                self.get_logger().info('机器人已准备就绪')
+                self.logger.info('机器人已准备就绪')
                 return True
             time.sleep(0.1)
         
-        self.get_logger().warn('等待机器人连接超时')
+        self.logger.warning('等待机器人连接超时')
         return False
     
     def is_connected(self) -> bool:
         """检查机器人是否就绪"""
         return self.is_robot_connected
     
-    def get_joints(self) -> Optional[np.ndarray]:
+    def get_joints(self) -> Optional[List[float]]:
         """获取所有关节位置"""
-        if not self.is_robot_connected:
-            self.get_logger().warn("机器人未连接")
-            return None
-        
         rclpy.spin_once(self, timeout_sec=0.1)
         return self.current_joint_positions
     
     def set_joints(self, joint_positions, wait=True, timeout=10.0, tolerance=0.01) -> bool:
         if not self.is_robot_connected:
-            self.get_logger().warn("机器人未连接")
+            self.logger.warning("机器人未连接")
             return False
         
         # 确保关节数量正确
         if len(joint_positions) != self.TOTAL_JOINTS_COUNT:
-            self.get_logger().error(f"关节数量错误: 需要{self.TOTAL_JOINTS_COUNT}个关节位置")
+            self.logger.error(f"关节数量错误: 需要{self.TOTAL_JOINTS_COUNT}个关节位置")
             return False
         
         # 发送命令
         msg = Float64MultiArray()
-        msg.data = np.array(joint_positions).tolist()
+        msg.data = joint_positions  # 直接使用list
         self.simple_command_publisher.publish(msg)
-        self.get_logger().info(f'发送移动命令: {format_to_2dp(joint_positions)}')
+        self.logger.debug(f'发送移动命令: {format_to_2dp(joint_positions)}')
         
         if not wait:
             return True
         
         # 等待运动完成
         start_time = time.time()
+        i = 0
         while time.time() - start_time < timeout:
-            rclpy.spin_once(self, timeout_sec=0.1)
-            if np.all(np.abs(self.current_joint_positions - joint_positions) < tolerance):
+            rclpy.spin_once(self, timeout_sec=0.01)
+            current_joint_positions = self.get_joints()
+            # 使用list comprehension计算差值
+            position_diffs = [abs(current - target) for current, target in zip(current_joint_positions, joint_positions)]
+            # print("current_joint_positions: ", current_joint_positions)
+            # print("position_diffs: ", position_diffs)
+            if all(diff < tolerance for diff in position_diffs):
+                print("b")
                 return True
-            time.sleep(0.1)
-        
-        self.get_logger().warn("到达目标位置超时")
+            print(i)
+            time.sleep(0.01)
+            i += 1
+        self.logger.warning("到达目标位置超时")
+        # 计算距离用于调试
+        self.logger.debug(f"target_joint_positions: {joint_positions}")
+        self.logger.debug(f"current_joint_positions: {format_to_2dp(self.current_joint_positions)}")
+        position_diffs = [abs(current - target) for current, target in zip(self.current_joint_positions, joint_positions)]
+        position_distance = sum(diff**2 for diff in position_diffs)**0.5  # 计算欧几里得距离
+        orientation_distance = sum(diff**2 for diff in position_diffs[3:])**0.5 if len(position_diffs) > 3 else 0
+        self.logger.debug(f"位置距离: {position_distance:.4f}")
+        self.logger.debug(f"姿态距离: {orientation_distance:.4f}")
         return False
     
     def close(self):
         """关闭节点"""
+        self.logger.info("关闭SO-100控制节点")
         self.destroy_node()
         
+    def print_joints_loop(self):
+        """打印关节位置"""
+        while True:
+            joints = self.get_joints()
+            rclpy.spin_once(self, timeout_sec=0.01)
+            self.logger.debug(f'关节状态: {format_to_2dp(joints)}')
+            time.sleep(0.01)
 
 def main():
     """示例用法"""
-    so100_robot = So100Robot()
+
+    ## so100 test
+    init_joints = [3.2, 2.9, 3.2, 3.1, 3.2, 3.0]
+    home_joints = [3.2, 1.3, 4.7, 2.9, 3.3, 3.0]
+    up_joints = [3.2, 3.0, 1.6, 1.6, 3.3, 3.0]
     
-    try:
-        while True:
-            # 获取机械臂关节角度
-            arm_angles = so100_robot.arm.get_joints()
-            # if arm_angles is not None:
-            #     print(f"机械臂关节角度: {format_to_2dp(arm_angles)}")
-            
-            # # 获取夹爪位置
-            # gripper_pos = so100_robot.gripper.get_joint()
-            # if gripper_pos is not None:
-            #     print(f"夹爪位置: {format_to_2dp(gripper_pos)}")
-                
-            # 获取末端执行器位姿
-            pose = so100_robot.arm.get_tcp_pose()
-            if pose is not None:
-                print(f"末端执行器位置: {format_to_2dp(pose[0:3])}")
-                # print(f"末端执行器方向: {format_to_2dp(pose[3:])}")
-            
-            time.sleep(0.5)
-            
-    except KeyboardInterrupt:
-        print("用户中断，程序结束")
-    finally:
-        so100_robot.close()
-        rclpy.shutdown()
+    tcp_init_pose = [0.0, -0.24, 0.08, 0.71, 0.0, 0.0, 0.71]
+    tcp_init_pose1 = [0.1, -0.24, 0.28, 0.71, 0.0, 0.0, 0.71]
+
+    so100_robot = So100Robot()
+    # so100_robot.
+    arm_joints = so100_robot.arm.get_joints()
+    # print("arm_joints: ", arm_joints)
+    so100_robot.arm.move_zero()
+    # so100_robot.arm.move_home()
+    # so100_robot.arm.move_up()
+
+    flange_pose = so100_robot.arm.get_flange_pose()
+    print("flange_pose: ", flange_pose)
+    tcp_pose = so100_robot.arm.get_tcp_pose()
+    print("tcp_pose: ", tcp_pose)
+
+    # so100_robot.arm.tcp_move_to_pose(tcp_init_pose1)
+
+
+    # so100_robot.print_joints_loop()
+
+    # so100_robot.set_joints(init_joints, wait=True, timeout=200, tolerance=0.1)
+    # so100_robot.set_joints(home_joints, wait=True, timeout=20, tolerance=0.1)
+    # so100_robot.set_joints(up_joints, wait=True, timeout=20, tolerance=0.1)
+
+    # # arm test
+    # init_joints = [3.2, 2.9, 3.2, 3.16, 3.2]
+    # home_joints = [3.2, 1.3, 4.7, 2.9, 3.3]
+    # up_joints = [3.2, 3.0, 1.6, 1.6, 3.3]
+
+    # arm = So100Robot().arm
+
+    # arm.set_joints(init_joints, wait=True, timeout=20, tolerance=0.1)
+    # arm.set_joints(home_joints, wait=True, timeout=20, tolerance=0.1)
+    # arm.set_joints(up_joints, wait=True, timeout=20, tolerance=0.1)
+
+    # current_joints = arm.get_joints()
+    # print("current_joints: ", current_joints)
+    # arm.set_joints(current_joints, wait=True, timeout=20, tolerance=0.1)
+
+    # flange_pose = arm.get_flange_pose()
+    # print("flange_pose: ", flange_pose)
+    # tcp_pose = arm.get_tcp_pose()
+    # print("tcp_pose: ", tcp_pose)
 
 if __name__ == '__main__':
     main()
