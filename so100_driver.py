@@ -14,21 +14,18 @@ from sensor_msgs.msg import JointState
 from std_msgs.msg import Float64MultiArray
 from ft_servo_wrapper import FTServoWrapper
 import logging
+import colorlog
 
 
 class So100Driver(Node):
     """SO-100机器人硬件控制节点"""
     
     def __init__(self):
-        # 配置Python logging
-        # logging.basicConfig(
-        #     level=logging.INFO,
-        #     format='[%(levelname)s] [%(name)s] [%(asctime)s] [%(filename)s:%(lineno)d] %(message)s',
-        #     datefmt='%Y-%m-%d %H:%M:%S'
-        # )
-        logging.basicConfig(
+        # 配置Python logging with colors
+        colorlog.basicConfig(
+            # level=logging.DEBUG,
             level=logging.INFO,
-            format='[%(levelname)s][%(filename)s:%(lineno)d] %(message)s',
+            format='%(log_color)s[%(levelname)s][%(filename)s:%(lineno)d] %(message)s',
             datefmt='%Y-%m-%d %H:%M:%S'
         )
         self.logger = logging.getLogger('so100_hardware_controller')

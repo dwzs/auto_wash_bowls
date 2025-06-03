@@ -364,7 +364,7 @@ class Arm:
         # 执行关节运动
         return self.set_joints(joint_solution, wait, timeout, tolerance)
 
-    def tcp_move_to_pose(self, target_pose_list, initial_joint_guess=None, mask=None, wait=True, timeout=10.0, tolerance=0.01):
+    def tcp_move_to_pose(self, target_pose_list, initial_joint_guess=None, mask=None, wait=True, timeout=20.0, tolerance=0.01):
         """
         移动TCP到目标位姿
         
@@ -423,7 +423,7 @@ class Arm:
     def get_joints(self) -> Optional[List[float]]:
         """获取机械臂关节角度（不包括夹爪），应用零位偏移"""
         joints = self._robot.get_joints()
-        self.logger.debug(f"获取到的所有关节: {joints}")
+        # self.logger.debug(f"获取到的所有关节: {joints}")
         if joints is None:
             return None
         
@@ -431,13 +431,13 @@ class Arm:
         raw_joints = [joints[i] for i in self.joint_index]
         
         # 应用零位偏移
-        offset_joints = [raw - zero for raw, zero in zip(raw_joints, self.offest_zero)]
+        joints_offseted = [raw - zero for raw, zero in zip(raw_joints, self.offest_zero)]
         
-        print(f"原始机械臂关节: {raw_joints}")
-        print(f"零位偏移: {self.zero_joints}")
-        print(f"偏移后关节: {offset_joints}")
+        # print(f"原始机械臂关节: {raw_joints}")
+        # print(f"零位偏移: {self.zero_joints}")
+        # print(f"偏移后关节: {offset_joints}")
         
-        return format_to_2dp(offset_joints)
+        return format_to_2dp(joints_offseted)
     
 
     def get_flange_pose(self) -> Optional[List[float]]:
@@ -457,15 +457,14 @@ class Arm:
     def set_joints(self, positions: List[float], wait=True, timeout=10.0, tolerance=0.01) -> bool:
         # 确保关节数量正确
         if len(positions) != len(self.joint_index):
-            self.logger.error(f"机械臂关节数量错误: 需要{len(self.joint_index)}个关节位置")
+            self.logger.error(f"机械臂关节数量错误: 需要{len(self.joint_index)}个关节位置, 实际关节数量: {len(positions)}")
             return False
         
         # 应用零位偏移，将逻辑关节角度转换为原始关节角度
         raw_positions = [pos + zero for pos, zero in zip(positions, self.offest_zero)]
         
-        print(f"输入的逻辑关节角度: {format_to_2dp(positions)}")
-        print(f"零位偏移: {self.zero_joints}")
-        print(f"转换后的原始关节角度: {format_to_2dp(raw_positions)}")
+        # print(f"输入的逻辑关节角度: {format_to_2dp(positions)}")
+        # print(f"转换后的原始关节角度: {format_to_2dp(raw_positions)}")
         
         # 获取当前夹爪位置
         current_gripper_pos = self._robot.gripper.get_joint()
@@ -478,7 +477,7 @@ class Arm:
         self.logger.debug(f"发送给机器人的完整关节位置: {format_to_2dp(full_joint_positions)}")
         
         # 发送完整的关节命令
-        print("full_joint_positions: ", full_joint_positions)
+        # print("full_joint_positions: ", full_joint_positions)
         return self._robot.set_joints(full_joint_positions, wait, timeout, tolerance)
 
     def move_home(self, wait=True) -> bool:
@@ -498,11 +497,11 @@ class Arm:
     
     def move_line(self, position_a, position_b, wait=True, timeout=10.0, tolerance=0.01):
         """
-        控制机械臂TCP从A点直线运动到B点
+        控制机械臂TCP从A点直线运动到B点，保持当前姿态
         
         参数:
-            position_a: 起始位置 [x, y, z, qx, qy, qz, qw] 或 [x, y, z]
-            position_b: 终止位置 [x, y, z, qx, qy, qz, qw] 或 [x, y, z]
+            position_a: 起始位置 [x, y, z]
+            position_b: 终止位置 [x, y, z]
             wait: 是否等待运动完成
             timeout: 超时时间
             tolerance: 到达精度
@@ -511,30 +510,26 @@ class Arm:
             bool: 是否成功完成直线运动
         """
         try:
-            # 处理输入参数，确保包含完整的位姿信息
-            def ensure_full_pose(position):
-                if len(position) == 3:
-                    # 如果只有位置信息，获取当前姿态
-                    current_tcp = self.get_tcp_pose()
-                    if current_tcp is None:
-                        # 使用默认姿态 (工具向下)
-                        from scipy.spatial.transform import Rotation
-                        default_quat = Rotation.from_euler('x', 180, degrees=True).as_quat()
-                        return list(position) + list(default_quat)
-                    else:
-                        return list(position) + current_tcp[3:]  # 保持当前姿态
-                elif len(position) == 7:
-                    return list(position)
-                else:
-                    raise ValueError(f"位置参数长度错误: {len(position)}, 应为3或7")
+            # 验证输入参数
+            if len(position_a) != 3 or len(position_b) != 3:
+                self.logger.error(f"位置参数长度错误: A点长度{len(position_a)}, B点长度{len(position_b)}, 应为3")
+                return False
             
-            pose_a = ensure_full_pose(position_a)
-            pose_b = ensure_full_pose(position_b)
+            # 获取当前TCP姿态
+            current_tcp = self.get_tcp_pose()
+            if current_tcp is None:
+                self.logger.error("无法获取当前TCP姿态")
+                return False
             
-            self.logger.info(f"开始直线运动: A{format_to_2dp(pose_a[:3])} -> B{format_to_2dp(pose_b[:3])}")
+            # 使用当前姿态构建完整位姿
+            current_orientation = current_tcp[3:]  # [qx, qy, qz, qw]
+            pose_a = list(position_a) + current_orientation
+            pose_b = list(position_b) + current_orientation
+            
+            self.logger.info(f"开始直线运动: A{format_to_2dp(position_a)} -> B{format_to_2dp(position_b)}, 保持当前姿态")
             
             # 计算直线距离和插值点数量
-            distance = np.linalg.norm(np.array(pose_b[:3]) - np.array(pose_a[:3]))
+            distance = np.linalg.norm(np.array(position_b) - np.array(position_a))
             
             # 根据距离确定插值点数量 (每1cm一个点)
             num_points = max(int(distance * 100), 2)  # 至少2个点
@@ -548,27 +543,17 @@ class Arm:
                 t = i / num_points  # 插值参数 0 到 1
                 
                 # 位置线性插值
-                pos_interp = np.array(pose_a[:3]) + t * (np.array(pose_b[:3]) - np.array(pose_a[:3]))
+                pos_interp = np.array(position_a) + t * (np.array(position_b) - np.array(position_a))
                 
-                # 姿态球面线性插值 (SLERP)
-                from scipy.spatial.transform import Rotation, Slerp
-                
-                rot_a = Rotation.from_quat(pose_a[3:])
-                rot_b = Rotation.from_quat(pose_b[3:])
-                
-                # 创建球面插值器
-                key_times = [0, 1]
-                key_rots = Rotation.from_quat([pose_a[3:], pose_b[3:]])
-                slerp = Slerp(key_times, key_rots)
-                
-                # 插值姿态
-                rot_interp = slerp(t)
-                quat_interp = rot_interp.as_quat()
-                
-                # 组合完整位姿
-                waypoint = list(pos_interp) + list(quat_interp)
+                # 组合位置和固定姿态
+                waypoint = list(pos_interp) + current_orientation
                 waypoints.append(waypoint)
             
+            # 输出直线运动关节轨迹，每行一个轨迹点
+            self.logger.debug("直线运动关节轨迹:")
+            for i, waypoint in enumerate(waypoints):
+                self.logger.debug(f"  轨迹点 {i+1}: {format_to_2dp(waypoint)}")
+
             # 执行轨迹运动
             for i, waypoint in enumerate(waypoints):
                 self.logger.debug(f"移动到轨迹点 {i+1}/{len(waypoints)}: {format_to_2dp(waypoint[:3])}")
@@ -580,7 +565,8 @@ class Arm:
                 end_time = time.time()
                 self.logger.debug(f"移动到轨迹点 {i+1} 耗时: {end_time - start_time:.4f} 秒")
             
-            self.logger.debug(f"直线运动关节轨迹: {self.line_joints}")
+
+            
             self.logger.info("直线运动完成")
             return True
             
@@ -597,7 +583,8 @@ class So100Robot(Node):
     def __init__(self):
         # 配置Python logging with colors (minimal changes)
         colorlog.basicConfig(
-            level=logging.INFO,
+            level=logging.DEBUG,
+            # level=logging.INFO,
             format='%(log_color)s[%(levelname)s][%(filename)s:%(lineno)d] %(message)s',
             datefmt='%Y-%m-%d %H:%M:%S'
         )
@@ -707,28 +694,23 @@ class So100Robot(Node):
         # 等待运动完成
         start_time = time.time()
         i = 0
+        joints_diffs = []
         while time.time() - start_time < timeout:
             rclpy.spin_once(self, timeout_sec=0.01)
             current_joint_positions = self.get_joints()
-            # 使用list comprehension计算差值
-            position_diffs = [abs(current - target) for current, target in zip(current_joint_positions, joint_positions)]
-            # print("current_joint_positions: ", current_joint_positions)
-            # print("position_diffs: ", position_diffs)
-            if all(diff < tolerance for diff in position_diffs):
-                print("b")
+            joints_diffs = [abs(current - target) for current, target in zip(current_joint_positions, joint_positions)]
+            if all(diff < tolerance for diff in joints_diffs):
                 return True
-            print(i)
+            # else:
+            #     self.logger.warning("到达目标位置超时")
+            #     self.logger.debug(f"关节误差: {joints_diffs}")
             time.sleep(0.01)
             i += 1
         self.logger.warning("到达目标位置超时")
-        # 计算距离用于调试
         self.logger.debug(f"target_joint_positions: {joint_positions}")
         self.logger.debug(f"current_joint_positions: {format_to_2dp(self.current_joint_positions)}")
-        position_diffs = [abs(current - target) for current, target in zip(self.current_joint_positions, joint_positions)]
-        position_distance = sum(diff**2 for diff in position_diffs)**0.5  # 计算欧几里得距离
-        orientation_distance = sum(diff**2 for diff in position_diffs[3:])**0.5 if len(position_diffs) > 3 else 0
-        self.logger.debug(f"位置距离: {position_distance:.4f}")
-        self.logger.debug(f"姿态距离: {orientation_distance:.4f}")
+        self.logger.debug(f"有关节误差超过{tolerance}的关节，当前误差: {joints_diffs}")
+        
         return False
     
     def close(self):
@@ -748,27 +730,37 @@ def main():
     """示例用法"""
 
     ## so100 test
-    init_joints = [3.2, 2.9, 3.2, 3.1, 3.2, 3.0]
-    home_joints = [3.2, 1.3, 4.7, 2.9, 3.3, 3.0]
-    up_joints = [3.2, 3.0, 1.6, 1.6, 3.3, 3.0]
-    
+    init_joints = [0, 0, 0, 0, 0]
+
     tcp_init_pose = [0.0, -0.24, 0.08, 0.71, 0.0, 0.0, 0.71]
     tcp_init_pose1 = [0.1, -0.24, 0.28, 0.71, 0.0, 0.0, 0.71]
 
+    tcp_position_a = [0.1, -0.24, 0.01]    
+    tcp_position_b = [-0.1, -0.24, 0.18]
     so100_robot = So100Robot()
     # so100_robot.
     arm_joints = so100_robot.arm.get_joints()
     # print("arm_joints: ", arm_joints)
-    so100_robot.arm.move_zero()
+    # so100_robot.arm.move_zero()
     # so100_robot.arm.move_home()
     # so100_robot.arm.move_up()
 
-    flange_pose = so100_robot.arm.get_flange_pose()
-    print("flange_pose: ", flange_pose)
-    tcp_pose = so100_robot.arm.get_tcp_pose()
-    print("tcp_pose: ", tcp_pose)
 
-    # so100_robot.arm.tcp_move_to_pose(tcp_init_pose1)
+
+    # flange_pose = so100_robot.arm.get_flange_pose()
+    # print("flange_pose: ", flange_pose)
+    # tcp_pose = so100_robot.arm.get_tcp_pose()
+    # print("tcp_pose: ", tcp_pose)
+
+    # tcp_init_pose[1] += 0.05
+    # so100_robot.arm.tcp_move_to_pose(tcp_init_pose, wait=True, timeout=10, tolerance=0.1)
+
+    # flange_pose = so100_robot.arm.get_flange_pose()
+    # print("flange_pose: ", flange_pose)
+    # tcp_pose = so100_robot.arm.get_tcp_pose()
+    # print("tcp_pose: ", tcp_pose)
+
+    so100_robot.arm.move_line(tcp_position_a, tcp_position_b, wait=True, timeout=20, tolerance=0.1)
 
 
     # so100_robot.print_joints_loop()
