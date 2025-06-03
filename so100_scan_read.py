@@ -6,13 +6,13 @@ import math
 from typing import List
 
 # 导入飞特舵机控制器
-from ft_servo_controller import FTServoController
+from ft_servo_wrapper import FTServoWrapper
 
 class ServoAngleReader:
     """舵机角度读取器"""
     
     def __init__(self, port: str = '/dev/ttyACM0', baudrate: int = 1000000):
-        self.controller = FTServoController(port, baudrate)
+        self.controller = FTServoWrapper(port, baudrate)
         self.servo_ids = []
         
     def connect(self) -> bool:

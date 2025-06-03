@@ -10,7 +10,7 @@ from typing import Optional, List, Tuple, Dict
 sys.path.append(".")
 from scservo_sdk import *
 
-class FTServoController:
+class FTServoWrapper:
     """飞特舵机控制器 - 基于 scservo_sdk 的封装"""
     
     def __init__(self, port: str = '/dev/ttyUSB0', baudrate: int = 1000000):
@@ -435,7 +435,7 @@ class FTServoController:
 # 使用示例
 if __name__ == "__main__":
     ids = [1, 2, 3, 4, 5, 6]
-    controller = FTServoController('/dev/ttyACM0')
+    controller = FTServoWrapper('/dev/ttyACM0')
     
     # 重新连接
     if not controller.connect():

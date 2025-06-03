@@ -12,11 +12,11 @@ from typing import List, Optional, Dict, Tuple
 from rclpy.node import Node
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Float64MultiArray
-from ft_servo_controller import FTServoController
+from ft_servo_wrapper import FTServoWrapper
 import logging
 
 
-class So100HardwareController(Node):
+class So100Driver(Node):
     """SO-100机器人硬件控制节点"""
     
     def __init__(self):
@@ -42,7 +42,7 @@ class So100HardwareController(Node):
         self.servo_ids = [1, 2, 3, 4, 5, 6]
         # self.speed = 200 # 舵机运动的速度
         # self.acceleration = 100 # 舵机运动的加速度
-        self.servo_controller = FTServoController(self.port, self.baudrate)
+        self.servo_controller = FTServoWrapper(self.port, self.baudrate)
         self.initialize_hardware()
 
         # 2. so100 相关
@@ -293,7 +293,7 @@ def main(args=None):
     
     try:
         # 创建硬件控制节点
-        hardware_controller = So100HardwareController()
+        hardware_controller = So100Driver()
         
         # 检查初始化是否成功
         if not hasattr(hardware_controller, 'initialized') or not hardware_controller.initialized:
