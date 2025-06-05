@@ -624,7 +624,7 @@ class So100Robot(Node):
         # 创建发布器和订阅器
         self.pub_rate = 1000
         self.simple_command_publisher = self.create_publisher(
-            JointState, 'so100_position_commands', self.pub_rate)
+            JointState, 'so100_joints_commands', self.pub_rate)
         
         self.joint_state_subscriber = self.create_subscription(
             JointState, 'so100_joint_states', self._joint_state_callback, 10)
