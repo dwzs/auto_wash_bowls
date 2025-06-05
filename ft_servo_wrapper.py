@@ -445,7 +445,7 @@ if __name__ == "__main__":
     # zero_joints = [2039, 1916, 2086, 2034, 100, 2180]
 
     # 写入位置
-    controller.sync_write_positions([(1, 2039, 200, 100), (2, 1916, 200, 100), (3, 2086, 200, 100), (4, 2034, 200, 100), (5, 100, 200, 100), (6, 2180, 200, 100)])
+    # controller.sync_write_positions([(1, 2048, 200, 100), (2, 1916, 200, 100), (3, 2086, 200, 100), (4, 2034, 200, 100), (5, 100, 200, 100), (6, 2180, 200, 100)])
     # controller.sync_write_positions([(1, 2039, 200, 100)])
     while True:
         positions = controller.sync_read_positions(ids)
@@ -455,7 +455,7 @@ if __name__ == "__main__":
 
 
     # 错误码读取
-    # controller.write_position(4, 2039, 200, 100)
+    # controller.write_position(1, 2048, 200, 100)
     # while True:
     #     positions = controller.read_position(4)
     
@@ -469,4 +469,4 @@ if __name__ == "__main__":
     #     time.sleep(0.1)
 
     # # 使用完毕后断开连接
-    # controller.disconnect()
+    controller.disconnect()

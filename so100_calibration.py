@@ -104,7 +104,8 @@ class SO100Calibrator:
 
     def calibrate_joint_limits(self):
         """标定关节限位"""
-        joint_limits = {}
+        joint_limits_rad = {}
+        joint_limits_raw = {}
         
         for servo_id in self.servo_ids:
             print(f"\n=== 标定舵机 ID: {servo_id} 的限位 ===")
@@ -113,13 +114,24 @@ class SO100Calibrator:
             pos2 = self.get_user_position(servo_id, "请移动到第二个限位位置")
             
             if pos1 is not None and pos2 is not None:
-                joint_limits[servo_id] = {
+                # 保存弧度数据
+                joint_limits_rad[servo_id] = {
                     "min": min(pos1, pos2),
                     "max": max(pos1, pos2)
                 }
-                print(f"舵机 ID: {servo_id} 限位: {joint_limits[servo_id]['min']:.4f} ~ {joint_limits[servo_id]['max']:.4f}")
+                
+                # 保存原始位置数据
+                raw_pos1 = self.radian_to_position(pos1)
+                raw_pos2 = self.radian_to_position(pos2)
+                joint_limits_raw[servo_id] = {
+                    "min": min(raw_pos1, raw_pos2),
+                    "max": max(raw_pos1, raw_pos2)
+                }
+                
+                print(f"舵机 ID: {servo_id} 限位: {joint_limits_rad[servo_id]['min']:.4f} ~ {joint_limits_rad[servo_id]['max']:.4f} 弧度")
+                print(f"舵机 ID: {servo_id} 原始位置: {joint_limits_raw[servo_id]['min']} ~ {joint_limits_raw[servo_id]['max']}")
         
-        return joint_limits
+        return joint_limits_rad, joint_limits_raw
 
     def calibrate_pose(self, pose_name, description):
         """标定单个位姿"""
@@ -148,9 +160,9 @@ class SO100Calibrator:
     def calibrate_poses(self):
         """标定所有关键位姿"""
         pose_configs = {
-            "home_pose": "机械臂的零位姿态",
-            "up_pose": "机械臂的竖直向上位姿", 
-            "init_pose": "机械臂的初始化位姿"
+            "home_pose_joints": "机械臂的零位姿态",
+            "up_pose_joints": "机械臂的竖直向上位姿", 
+            "zero_pose_joints": "机械臂的初始化位姿"
         }
         
         poses = {}
@@ -183,15 +195,15 @@ class SO100Calibrator:
         """移动到指定位姿"""
         with self:  # 使用上下文管理器自动管理连接
             calibration_data = self.load_calibration_data(config_file)
-            if not calibration_data or "poses" not in calibration_data:
+            if not calibration_data:
                 print("无法加载标定数据")
                 return False
             
-            if pose_name not in calibration_data["poses"]:
+            if pose_name not in calibration_data["poses_joints"]:
                 print(f"位姿 {pose_name} 不存在")
                 return False
             
-            pose_data = calibration_data["poses"][pose_name]
+            pose_data = calibration_data["poses_joints"][pose_name]
             if not pose_data:
                 print(f"位姿 {pose_name} 数据无效")
                 return False
@@ -242,6 +254,52 @@ class SO100Calibrator:
             print(f"{'成功' if success else '失败'}移动到 {pose_name}")
             return success
 
+    def calculate_offseted_limits(self, joint_limits_rad, zero_pose_joints):
+        """计算以init_pose为零点的关节限制"""
+        joint_limits_offseted = {}
+        
+        if not zero_pose_joints:
+            print("警告: zero_pose_joints 数据无效，无法计算偏移限制")
+            return joint_limits_offseted
+        
+        for i, servo_id in enumerate(self.servo_ids):
+            if servo_id in joint_limits_rad and i < len(zero_pose_joints):
+                init_position = zero_pose_joints[i]  # init_pose中对应的位置
+                original_min = joint_limits_rad[servo_id]["min"]
+                original_max = joint_limits_rad[servo_id]["max"]
+                
+                # 以init_pose为零点计算偏移后的限制
+                joint_limits_offseted[servo_id] = {
+                    "min": original_min - init_position,
+                    "max": original_max - init_position
+                }
+                
+                print(f"舵机 ID: {servo_id} 偏移限位 (以init_pose为零点): {joint_limits_offseted[servo_id]['min']:.4f} ~ {joint_limits_offseted[servo_id]['max']:.4f} 弧度")
+        
+        return joint_limits_offseted
+
+    def calculate_offseted_poses(self, poses, zero_pose_joints):
+        """计算以zero_pose为零点的位姿偏移"""
+        poses_offseted = {}
+        
+        if not zero_pose_joints:
+            print("警告: zero_pose_joints 数据无效，无法计算偏移位姿")
+            return poses_offseted
+        
+        for pose_name, pose_data in poses.items():
+            if pose_data and len(pose_data) == len(zero_pose_joints):
+                offseted_pose = []
+                for i in range(len(pose_data)):
+                    offseted_value = pose_data[i] - zero_pose_joints[i]
+                    offseted_pose.append(offseted_value)
+                
+                poses_offseted[pose_name] = offseted_pose
+                print(f"位姿 {pose_name} 偏移数据 (以zero_pose为零点): {[f'{x:.4f}' for x in offseted_pose]}")
+            else:
+                print(f"警告: 位姿 {pose_name} 数据无效，跳过偏移计算")
+        
+        return poses_offseted
+
     def run_calibration(self, config_file='so100_calibration.json'):
         """运行完整标定流程"""
         with self:  # 使用上下文管理器
@@ -250,9 +308,24 @@ class SO100Calibrator:
             self.set_torque(False)  # 禁用扭矩，允许手动移动
             
             # 标定限位和位姿
+            joint_limits_rad, joint_limits_raw = self.calibrate_joint_limits()
+            poses = self.calibrate_poses()
+            
+            # 计算以zero_pose为零点的关节限制和位姿偏移
+            joint_limits_offseted = {}
+            poses_offseted = {}
+            if poses and poses.get("zero_pose_joints"):
+                joint_limits_offseted = self.calculate_offseted_limits(joint_limits_rad, poses["zero_pose_joints"])
+                poses_offseted = self.calculate_offseted_poses(poses, poses["zero_pose_joints"])
+            else:
+                print("警告: 无法获取zero_pose_joints，跳过偏移计算")
+            
             calibration_data = {
-                "joint_limits": self.calibrate_joint_limits(),
-                "poses": self.calibrate_poses()
+                "joint_limits_rad": joint_limits_rad,
+                "joint_limits_raw": joint_limits_raw,
+                "joint_limits_offseted": joint_limits_offseted,
+                "poses_joints": poses,
+                "poses_joints_offseted": poses_offseted
             }
             
             # 保存数据
@@ -266,9 +339,9 @@ def main():
     # 使用默认参数创建标定器
     calibrator = SO100Calibrator()
     # calibrator.run_calibration()
-    calibrator.move_to_pose("home_pose")
-    # calibrator.move_to_pose("up_pose")
-    # calibrator.move_to_pose("init_pose")
+    calibrator.move_to_pose("home_pose_joints")
+    calibrator.move_to_pose("up_pose_joints")
+    calibrator.move_to_pose("zero_pose_joints")
 
 
 if __name__ == "__main__":

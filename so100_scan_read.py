@@ -50,15 +50,24 @@ class ServoAngleReader:
                 positions = self.controller.sync_read_positions(self.servo_ids)
                 
                 # 显示时间和角度
-                current_time = time.strftime('%H:%M:%S')
-                print(f"\r{current_time}", end="")
+                # current_time = time.strftime('%H:%M:%S')
+                # print(f"\r{current_time}", end="")
                 
+                # pulse
                 for i, servo_id in enumerate(self.servo_ids):
                     if i < len(positions) and positions[i] is not None:
-                        radians = self.position_to_radians(positions[i])
-                        print(f" | {servo_id}:{radians:+6.3f}", end="")
+                        pulse = positions[i]
+                        print(f" | {servo_id}:{pulse}", end="")
                     else:
                         print(f" | {servo_id}:ERROR", end="")
+
+                # #rad
+                # for i, servo_id in enumerate(self.servo_ids):
+                #     if i < len(positions) and positions[i] is not None:
+                #         radians = self.position_to_radians(positions[i])
+                #         print(f" | {servo_id}:{radians:+6.3f}", end="")
+                #     else:
+                #         print(f" | {servo_id}:ERROR", end="")
                 
                 print("", end="\r")
                 time.sleep(update_interval)

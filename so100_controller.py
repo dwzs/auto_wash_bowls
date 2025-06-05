@@ -114,45 +114,45 @@ class Arm:
 
         # 加载机器人模型用于逆解
         self._load_robot_model()
-        self._offset_calibration_data()
+        # self._offset_calibration_data()
         self.line_joints = []
 
-    def _offset_calibration_data(self):
-        """根据标定数据计算零位偏移"""
+    # def _offset_calibration_data(self):
+    #     """根据标定数据计算零位偏移"""
 
-        self.offest_zero = self._robot.init_pose_joints[:5]  
-        self.zero_joints = [0, 0, 0, 0, 0]
-        self.home_joints = [self._robot.home_pose_joints[i] - self.offest_zero[i] for i in range(5)]
-        self.up_joints = [self._robot.up_pose_joints[i] - self.offest_zero[i] for i in range(5)]
+    #     self.offest_zero = self._robot.zero_pose_joints[:5]  
+    #     self.zero_joints = [0, 0, 0, 0, 0]
+    #     self.home_joints = [self._robot.home_pose_joints[i] - self.offest_zero[i] for i in range(5)]
+    #     self.up_joints = [self._robot.up_pose_joints[i] - self.offest_zero[i] for i in range(5)]
         
-        # 计算偏移后的关节限制
-        raw_limits = self._robot.joints_limits
-        self.joints_limits = []
-        for i in range(5):
-            joint_key = str(i+1)
-            if joint_key in raw_limits:
-                joint_limit_dict = raw_limits[joint_key]
-                # 从嵌套字典中提取min和max值
-                try:
-                    raw_min = float(joint_limit_dict["min"])
-                    raw_max = float(joint_limit_dict["max"])
-                except (ValueError, TypeError, KeyError) as e:
-                    self.logger.error(f"关节{i+1}的限制值无法解析: {joint_limit_dict}")
-                    self.joints_limits.append(None)
-                    continue
+    #     # 计算偏移后的关节限制
+    #     raw_limits = self._robot.joints_limits
+    #     self.joints_limits = []
+    #     for i in range(5):
+    #         joint_key = str(i+1)
+    #         if joint_key in raw_limits:
+    #             joint_limit_dict = raw_limits[joint_key]
+    #             # 从嵌套字典中提取min和max值
+    #             try:
+    #                 raw_min = float(joint_limit_dict["min"])
+    #                 raw_max = float(joint_limit_dict["max"])
+    #             except (ValueError, TypeError, KeyError) as e:
+    #                 self.logger.error(f"关节{i+1}的限制值无法解析: {joint_limit_dict}")
+    #                 self.joints_limits.append(None)
+    #                 continue
                 
-                # 应用零位偏移：逻辑限制 = 原始限制 - 零位偏移
-                offset_min = raw_min - self.offest_zero[i]
-                offset_max = raw_max - self.offest_zero[i]
-                self.joints_limits.append([offset_min, offset_max])
-            else:
-                self.logger.warning(f"关节{i+1}的限制未找到")
-                self.joints_limits.append(None)
+    #             # 应用零位偏移：逻辑限制 = 原始限制 - 零位偏移
+    #             offset_min = raw_min - self.offest_zero[i]
+    #             offset_max = raw_max - self.offest_zero[i]
+    #             self.joints_limits.append([offset_min, offset_max])
+    #         else:
+    #             self.logger.warning(f"关节{i+1}的限制未找到")
+    #             self.joints_limits.append(None)
 
-        print("self.zero_joints: ", self.zero_joints)
-        print("self.home_joints: ", self.home_joints)
-        print("self.up_joints: ", self.up_joints)
-        print("self.joints_limits: ", self.joints_limits)
+    #     print("self.zero_joints: ", self.zero_joints)
+    #     print("self.home_joints: ", self.home_joints)
+    #     print("self.up_joints: ", self.up_joints)
+    #     print("self.joints_limits: ", self.joints_limits)
 
     def _load_robot_model(self):
         """加载机器人URDF模型用于逆解计算"""
@@ -172,13 +172,13 @@ class Arm:
             self.robot_model = None
             self.logger.error(f"加载URDF模型失败: {e}")
 
-        self.zero_joints = self._robot.init_pose_joints[:5]
+        self.zero_joints = self._robot.zero_pose_joints[:5]
         self.home_joints = self._robot.home_pose_joints[:5]
         self.up_joints = self._robot.up_pose_joints[:5]
         
         limits = self._robot.joints_limits
         # print("limits: ", limits)
-        self.joints_limits = [limits.get(str(i+1)) for i in range(5)]
+        self.joints_limits = [limits[i] for i in self.joint_index]
 
         # print("self.zero_joints: ", self.zero_joints)
         # print("self.home_pose: ", self.home_pose)
@@ -427,17 +427,18 @@ class Arm:
         if joints is None:
             return None
         
-        # 获取机械臂关节原始值
-        raw_joints = [joints[i] for i in self.joint_index]
+        # # 获取机械臂关节原始值
+        # raw_joints = [joints[i] for i in self.joint_index]
         
-        # 应用零位偏移
-        joints_offseted = [raw - zero for raw, zero in zip(raw_joints, self.offest_zero)]
+        # # 应用零位偏移
+        # joints_offseted = [raw - zero for raw, zero in zip(raw_joints, self.offest_zero)]
         
-        # print(f"原始机械臂关节: {raw_joints}")
-        # print(f"零位偏移: {self.zero_joints}")
-        # print(f"偏移后关节: {offset_joints}")
+        # # print(f"原始机械臂关节: {raw_joints}")
+        # # print(f"零位偏移: {self.zero_joints}")
+        # # print(f"偏移后关节: {offset_joints}")
         
-        return format_to_2dp(joints_offseted)
+        # return format_to_2dp(joints_offseted)
+        return format_to_2dp(joints)
     
 
     def get_flange_pose(self) -> Optional[List[float]]:
@@ -454,17 +455,17 @@ class Arm:
         tcp_pose = self._forward_kinematics(arm_joint_angles, use_tool=True)
         return format_to_2dp(tcp_pose)
     
-    def set_joints(self, positions: List[float], wait=True, timeout=10.0, tolerance=0.01) -> bool:
+    def set_joints(self, joints: List[float], wait=True, timeout=10.0, tolerance=0.1) -> bool:
         # 确保关节数量正确
-        if len(positions) != len(self.joint_index):
-            self.logger.error(f"机械臂关节数量错误: 需要{len(self.joint_index)}个关节位置, 实际关节数量: {len(positions)}")
+        if len(joints) != len(self.joint_index):
+            self.logger.error(f"机械臂关节数量错误: 需要{len(self.joint_index)}个关节位置, 实际关节数量: {len(joints)}")
             return False
         
-        # 应用零位偏移，将逻辑关节角度转换为原始关节角度
-        raw_positions = [pos + zero for pos, zero in zip(positions, self.offest_zero)]
+        # # 应用零位偏移，将逻辑关节角度转换为原始关节角度
+        # raw_positions = [pos + zero for pos, zero in zip(positions, self.offest_zero)]
         
-        # print(f"输入的逻辑关节角度: {format_to_2dp(positions)}")
-        # print(f"转换后的原始关节角度: {format_to_2dp(raw_positions)}")
+        # # print(f"输入的逻辑关节角度: {format_to_2dp(positions)}")
+        # # print(f"转换后的原始关节角度: {format_to_2dp(raw_positions)}")
         
         # 获取当前夹爪位置
         current_gripper_pos = self._robot.gripper.get_joint()
@@ -472,7 +473,7 @@ class Arm:
             return False
         
         # 构建完整的关节位置数组（包括夹爪）
-        full_joint_positions = raw_positions + [current_gripper_pos]
+        full_joint_positions = joints + [current_gripper_pos]
         
         self.logger.debug(f"发送给机器人的完整关节位置: {format_to_2dp(full_joint_positions)}")
         
@@ -583,8 +584,8 @@ class So100Robot(Node):
     def __init__(self):
         # 配置Python logging with colors (minimal changes)
         colorlog.basicConfig(
-            level=logging.DEBUG,
-            # level=logging.INFO,
+            # level=logging.DEBUG,
+            level=logging.INFO,
             format='%(log_color)s[%(levelname)s][%(filename)s:%(lineno)d] %(message)s',
             datefmt='%Y-%m-%d %H:%M:%S'
         )
@@ -596,23 +597,34 @@ class So100Robot(Node):
             
         super().__init__('So100Robot')
         self.is_robot_connected = False
+        self.servo_ids = [1, 2, 3, 4, 5, 6]
         
         # 总关节数量
         self.TOTAL_JOINTS_COUNT = 6  # 总关节数量（5个机械臂关节+1个夹爪）
         self.current_joint_positions = [0.0] * self.TOTAL_JOINTS_COUNT
         self.calibration_file = "so100_calibration.json"
 
-        calibration_data = self._load_joints_limits()
-        self.joints_limits = calibration_data["joint_limits"]
-        self.init_pose_joints = calibration_data["poses_joints"]["init_pose_joints"]
-        self.home_pose_joints = calibration_data["poses_joints"]["home_pose_joints"]
-        self.up_pose_joints = calibration_data["poses_joints"]["up_pose_joints"]
+
+        # # calibration_data = self._load_joints_limits()
+        calibration_data = self.load_calibration_data()
+        # self.joints_limits = calibration_data["joint_limits_offseted"]
+        # # self.zero_pose_joints = calibration_data["poses_joints"]["zero_pose_joints"]
+        # # self.home_pose_joints = calibration_data["poses_joints_offseted"]["home_pose_joints"]
+        # # self.up_pose_joints = calibration_data["poses_joints_offseted"]["up_pose_joints"]
         
+        # self.zero_pose_joints = calibration_data["poses_joints"]["zero_pose_joints"]
+        # self.home_pose_joints = calibration_data["poses_joints"]["home_pose_joints"]
+        # self.up_pose_joints = calibration_data["poses_joints"]["up_pose_joints"]
+
+        # self.zero_pose_joints_offseted = calibration_data["poses_joints_offseted"]["zero_pose_joints"]
+        # self.home_pose_joints_offseted = calibration_data["poses_joints_offseted"]["home_pose_joints"]
+        # self.up_pose_joints_offseted = calibration_data["poses_joints_offseted"]["up_pose_joints"]
+
 
         # 创建发布器和订阅器
         self.pub_rate = 1000
         self.simple_command_publisher = self.create_publisher(
-            Float64MultiArray, 'so100_position_commands', self.pub_rate)
+            JointState, 'so100_position_commands', self.pub_rate)
         
         self.joint_state_subscriber = self.create_subscription(
             JointState, 'so100_joint_states', self._joint_state_callback, 10)
@@ -624,21 +636,77 @@ class So100Robot(Node):
         # 等待机器人就绪
         self._wait_for_robot(10)
         
-    def _load_joints_limits(self):
-        """从配置文件加载关节限制"""
+    # def _load_joints_limits(self):
+    #     """从配置文件加载关节限制"""
+    #     try:
+    #         with open(self.calibration_file, 'r', encoding='utf-8') as f:
+    #             calibration_data = json.load(f)
+    #         return calibration_data
+    #     except FileNotFoundError:
+    #         self.logger.error(f'关节限制配置文件未找到: {self.calibration_file}')
+    #         raise
+    #     except json.JSONDecodeError as e:
+    #         self.logger.error(f'关节限制配置文件格式错误: {e}')
+    #         raise
+    #     except Exception as e:
+    #         self.logger.error(f'关节限制配置文件加载失败: {e}')
+    #         raise
+
+    def _check_and_limit_joint(self, servo_id: int, joint_rad: int):
+        """检查关节是否超出限制"""
+        if joint_rad < self.joints_limits[servo_id-1][0]:
+            self.logger.warning(f'关节{servo_id}({joint_rad})超出最小限制({self.joints_limits[servo_id-1][0]})')
+            joint_rad = self.joints_limits[servo_id-1][0]
+        elif joint_rad > self.joints_limits[servo_id-1][1]:
+            self.logger.warning(f'关节{servo_id}({joint_rad})超出最大限制({self.joints_limits[servo_id-1][1]})')
+            joint_rad = self.joints_limits[servo_id-1][1]
+        return joint_rad
+
+    def load_calibration_data(self):
+        """从配置文件加载标定数据"""
         try:
             with open(self.calibration_file, 'r', encoding='utf-8') as f:
                 calibration_data = json.load(f)
-            return calibration_data
+            
+            # 加载关节限制
+            self.joints_limits = []
+            joint_limits_dict = calibration_data.get('joint_limits_offseted', {})
+            for id in self.servo_ids:  
+                jointi_limit = joint_limits_dict.get(str(id))
+                if jointi_limit is None:
+                    self.logger.error(f'关节{id}的限制配置未找到')
+                    return False
+                self.joints_limits.append([jointi_limit["min"], jointi_limit["max"]])
+            
+            self.zero_pose_joints = calibration_data["poses_joints_offseted"]["zero_pose_joints"]
+            self.home_pose_joints = calibration_data["poses_joints_offseted"]["home_pose_joints"]
+            self.up_pose_joints = calibration_data["poses_joints_offseted"]["up_pose_joints"]
+
+            # self.zero_pose_joints_offseted = calibration_data["poses_joints_offseted"]["zero_pose_joints"]
+            # self.home_pose_joints_offseted = calibration_data["poses_joints_offseted"]["home_pose_joints"]
+            # self.up_pose_joints_offseted = calibration_data["poses_joints_offseted"]["up_pose_joints"]
+
+            self.logger.info(f'成功加载标定数据: {self.calibration_file}')
+            self.logger.info(f'关节限制: {self.joints_limits}')
+            self.logger.info(f'zero_pose关节位置: {self.zero_pose_joints}')
+            self.logger.info(f'home_pose关节位置: {self.home_pose_joints}')
+            self.logger.info(f'up_pose关节位置: {self.up_pose_joints}')
+            # self.logger.info(f'zero_pose关节位置(offseted): {self.zero_pose_joints_offseted}')
+            # self.logger.info(f'home_pose关节位置(offseted): {self.home_pose_joints_offseted}')
+            # self.logger.info(f'up_pose关节位置(offseted): {self.up_pose_joints_offseted}')
+            return True
+        
         except FileNotFoundError:
-            self.logger.error(f'关节限制配置文件未找到: {self.calibration_file}')
+            self.logger.error(f'标定文件未找到: {self.calibration_file}')
             raise
         except json.JSONDecodeError as e:
-            self.logger.error(f'关节限制配置文件格式错误: {e}')
+            self.logger.error(f'标定文件格式错误: {e}')
             raise
         except Exception as e:
-            self.logger.error(f'关节限制配置文件加载失败: {e}')
+            self.logger.error(f'加载标定数据失败: {e}')
             raise
+
+
 
     def _joint_state_callback(self, msg):
         """关节状态回调函数"""
@@ -682,9 +750,15 @@ class So100Robot(Node):
             self.logger.error(f"关节数量错误: 需要{self.TOTAL_JOINTS_COUNT}个关节位置")
             return False
         
+        # 检查关节是否超出限制
+        for i, joint_position in enumerate(joint_positions):
+            joint_positions[i] = self._check_and_limit_joint(i+1, joint_position)
+
         # 发送命令
-        msg = Float64MultiArray()
-        msg.data = joint_positions  # 直接使用list
+        msg = JointState()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.name = ['joint1', 'joint2', 'joint3', 'joint4', 'joint5', 'joint6']
+        msg.position = joint_positions
         self.simple_command_publisher.publish(msg)
         self.logger.debug(f'发送移动命令: {format_to_2dp(joint_positions)}')
         
@@ -735,59 +809,40 @@ def main():
     tcp_init_pose = [0.0, -0.24, 0.08, 0.71, 0.0, 0.0, 0.71]
     tcp_init_pose1 = [0.1, -0.24, 0.28, 0.71, 0.0, 0.0, 0.71]
 
-    tcp_position_a = [0.1, -0.24, 0.01]    
-    tcp_position_b = [-0.1, -0.24, 0.18]
+    tcp_position_a = [ 0.1, -0.15, 0.05]    
+    tcp_position_b = [-0.1, -0.15, 0.1]
+    tcp_position_c = [-0.15, -0.25, 0.05]
+    tcp_position_d = [-0.15, -0.25, 0.1]
     so100_robot = So100Robot()
-    # so100_robot.
-    arm_joints = so100_robot.arm.get_joints()
+    # # so100_robot.
+    # arm_joints = so100_robot.arm.get_joints()
     # print("arm_joints: ", arm_joints)
     # so100_robot.arm.move_zero()
     # so100_robot.arm.move_home()
-    # so100_robot.arm.move_up()
+    so100_robot.arm.move_up()
 
+    # joints = so100_robot.arm.get_joints()
+    # print("joints: ", joints)
+    # joints[0] += 0.2
+    # so100_robot.arm.set_joints(joints, wait=True, timeout=20, tolerance=0.1)
 
+    # so100_robot.arm.move_zero(wait=True)
+    # so100_robot.arm.move_up(wait=True)
+    # so100_robot.arm.move_home(wait=True)
 
-    # flange_pose = so100_robot.arm.get_flange_pose()
-    # print("flange_pose: ", flange_pose)
-    # tcp_pose = so100_robot.arm.get_tcp_pose()
-    # print("tcp_pose: ", tcp_pose)
+    # gripper_joint = so100_robot.gripper.get_joint()
+    # print("gripper_joint: ", gripper_joint)
+    # so100_robot.gripper.set_joint(1.6, wait=True, timeout=20, tolerance=0.1)
+    # gripper_joint = so100_robot.gripper.get_joint()
+    # print("gripper_joint: ", gripper_joint)
 
-    # tcp_init_pose[1] += 0.05
-    # so100_robot.arm.tcp_move_to_pose(tcp_init_pose, wait=True, timeout=10, tolerance=0.1)
+    # tcp_init_pose[0] += 0.1
+    # so100_robot.arm.tcp_move_to_pose(tcp_init_pose, wait=True, timeout=20, tolerance=0.1)
+    # tcp_init_pose[2] -= 0.05
+    # so100_robot.arm.tcp_move_to_pose(tcp_init_pose, wait=True, timeout=20, tolerance=0.1)
 
-    # flange_pose = so100_robot.arm.get_flange_pose()
-    # print("flange_pose: ", flange_pose)
-    # tcp_pose = so100_robot.arm.get_tcp_pose()
-    # print("tcp_pose: ", tcp_pose)
+    # so100_robot.gripper.set_joint(0.5, wait=True, timeout=20, tolerance=0.1)
 
-    so100_robot.arm.move_line(tcp_position_a, tcp_position_b, wait=True, timeout=20, tolerance=0.1)
-
-
-    # so100_robot.print_joints_loop()
-
-    # so100_robot.set_joints(init_joints, wait=True, timeout=200, tolerance=0.1)
-    # so100_robot.set_joints(home_joints, wait=True, timeout=20, tolerance=0.1)
-    # so100_robot.set_joints(up_joints, wait=True, timeout=20, tolerance=0.1)
-
-    # # arm test
-    # init_joints = [3.2, 2.9, 3.2, 3.16, 3.2]
-    # home_joints = [3.2, 1.3, 4.7, 2.9, 3.3]
-    # up_joints = [3.2, 3.0, 1.6, 1.6, 3.3]
-
-    # arm = So100Robot().arm
-
-    # arm.set_joints(init_joints, wait=True, timeout=20, tolerance=0.1)
-    # arm.set_joints(home_joints, wait=True, timeout=20, tolerance=0.1)
-    # arm.set_joints(up_joints, wait=True, timeout=20, tolerance=0.1)
-
-    # current_joints = arm.get_joints()
-    # print("current_joints: ", current_joints)
-    # arm.set_joints(current_joints, wait=True, timeout=20, tolerance=0.1)
-
-    # flange_pose = arm.get_flange_pose()
-    # print("flange_pose: ", flange_pose)
-    # tcp_pose = arm.get_tcp_pose()
-    # print("tcp_pose: ", tcp_pose)
 
 if __name__ == '__main__':
     main()
