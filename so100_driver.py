@@ -229,7 +229,7 @@ class So100Driver(Node):
             joint_state = JointState()
             joint_state.header.stamp = self.get_clock().now().to_msg()
             joint_state.header.frame_id = 'Base'
-            joint_state.name = ['joint1', 'joint2', 'joint3', 'joint4', 'joint5', 'joint6']
+            joint_state.name = ['Rotation', 'Pitch', 'Elbow', 'Wrist_Pitch', 'Wrist_Roll', 'Jaw']
             joint_state.position = joints
             self.joint_state_publisher.publish(joint_state)
         except Exception as e:
