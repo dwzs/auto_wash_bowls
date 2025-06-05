@@ -37,6 +37,7 @@ class So100Driver(Node):
         self.port = '/dev/ttyACM0'
         self.baudrate = 1000000
         self.servo_ids = [1, 2, 3, 4, 5, 6]
+        self.servo_dir = [-1, 1, 1, 1, 1, 1] #实际机械臂关节转向与urdf转向的关系，-1表示相反。
         # self.speed = 200 # 舵机运动的速度
         # self.acceleration = 100 # 舵机运动的加速度
         self.servo_controller = FTServoWrapper(self.port, self.baudrate)
@@ -144,6 +145,7 @@ class So100Driver(Node):
     def read_joint(self, servo_id: int):
         """读取当前舵机经过零位偏移后的位置(弧度)"""
         joint_pulse = self.read_original_joint(servo_id)
+        joint_pulse = joint_pulse * self.servo_dir[servo_id-1]
         return self._pulse_to_rad_offseted(joint_pulse, servo_id)
 
     def read_original_joints(self):
@@ -175,12 +177,15 @@ class So100Driver(Node):
     def read_joints(self):
         """读取当前舵机零位偏移后的位置(弧度)"""
         joints_pulse = self.read_original_joints()
+        for i, joint_pulse in enumerate(joints_pulse):
+            joints_pulse[i] = joint_pulse * self.servo_dir[i]
         return self._pulses_to_rads_offseted(joints_pulse)
 
     def write_joint(self, servo_id: int, joint_rad: int, speed: int = 200, acceleration: int = 100):
         """一次写入so100一个关节零位偏移后的位置(弧度)"""
         try:
             joint_rad_offseted = self._check_and_limit_joint(servo_id, joint_rad)
+            joint_rad_offseted = joint_rad_offseted * self.servo_dir[servo_id-1]
             raw_pulse = self._rad_offseted_to_pulse(joint_rad_offseted, servo_id)
             self.servo_controller.write_position(servo_id, raw_pulse, speed, acceleration)
         except Exception as e:
@@ -199,6 +204,7 @@ class So100Driver(Node):
             for i, servo_id in enumerate(self.servo_ids):
                 joint_rad_offseted = joints_rad[i]
                 joint_rad_offseted = self._check_and_limit_joint(servo_id, joint_rad_offseted)
+                joint_rad_offseted = joint_rad_offseted * self.servo_dir[servo_id-1]
 
                 # 确保所有计算结果都是整数
                 raw_pulse = self._rad_offseted_to_pulse(joint_rad_offseted, servo_id)
