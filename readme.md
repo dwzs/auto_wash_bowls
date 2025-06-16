@@ -1,8 +1,8 @@
-so100机械结构：
+## so100机械结构：
 臂展：36cm：  11 + 15 + 10 
 
 
-git wash bowls：
+## git wash bowls：
 dwzs_token: ********
 用http方式推代码，避免ssh遇到的问题：
 	1. 设置http url： git remote set-url origin https://github.com/dwzs/auto_wash_bowls.git
@@ -10,28 +10,40 @@ dwzs_token: ********
 	3. 推送代码：（注意输入密码时输入token）
 	4. 永久保存token： git config --global credential.helper store
 
-启动仿真机械臂：
-pyisim so100_sim_ros_launch.py
+启动仿真机械臂： pyisim so100_sim_ros_launch.py
+启动rviz可视化以及gui关节控制： ros2 launch so100_robot_description display_true_robot.launch.py
 
 
-实现下面功能：
-1. 构建一个600 * 600 的二值图，背景为黑
-2. 在这个二值图中构建一条水平方向的20像素长度单像素宽度的直线。
-3. 在这个二值图中构建一条斜着45度的20像素长度单像素宽度的直线。
-4. 在这个二值图中构建一个半径为10像素的填充圆形。
-5. 在这个二值图中构建一个半径为10像素的空心圆形，边界为单像素。
-6. 构建类似上面4和5的矩形。
+## 启动步骤
+1. 启动so100驱动层(关节控制，关节限制)
+    python so100_driver.py
+2. 启动rviz可视化以及gui关节控制
+    ros2 launch so100_robot_description display_true_robot.launch.py
+3. 启动so100 控制层(正逆解，机械臂控制，夹爪控制)
+    python so100_controller.py
+4. 启动isaacsim 仿真
+    pyisim so100_sim_ros_launch.py
+    
+## 思路：
+1. 目的：
+    a. so100, 单目（不标定），抓取立方体
+2. 目前能做什么(手里有哪些工具)，规则是什么：
+    1.机械臂：
+        a. 关节控制 
+        b. 获取关节角度
+    2.图像：
+        a. 图像像素级处理
+    3.其它：
+        数学基本运算
+3. 与目标的差距：
+    目标：抓取立方体，自动选择抓取点
+    差距：位置差距与姿态差距
+4. 减少差距：
 
 
 
-这个函数改一下，改成画下面图片：
-1. 灰度图
-2. 边缘图
-3. 过滤后的点集图（彩色，用于区分不同点集）
-4. 每组点集的所有椭圆，包括候选椭圆画在"3" 上
-5. 每组点集的最高置信度椭圆画在“3” 上
-6. 每组点集的最高置信度椭圆画在“2” 上
-7. 高于阈值置信度的椭圆画在原始图上
+
+
 
 
 EllipseExtracter
@@ -126,7 +138,7 @@ id:
 
 
 
-
+第一个关节读取有问题，可能是标定的0点不对
 
 
 

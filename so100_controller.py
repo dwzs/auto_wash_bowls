@@ -451,7 +451,7 @@ class Arm:
     def get_tcp_pose(self) -> Optional[List[float]]:
         """获取TCP位姿 [x, y, z, qx, qy, qz, qw]"""
         arm_joint_angles = self.get_joints()
-        print("arm_joint_angles: ", arm_joint_angles)
+        # print("arm_joint_angles: ", arm_joint_angles)
         tcp_pose = self._forward_kinematics(arm_joint_angles, use_tool=True)
         return format_to_2dp(tcp_pose)
     
@@ -566,8 +566,6 @@ class Arm:
                 end_time = time.time()
                 self.logger.debug(f"移动到轨迹点 {i+1} 耗时: {end_time - start_time:.4f} 秒")
             
-
-            
             self.logger.info("直线运动完成")
             return True
             
@@ -584,8 +582,8 @@ class So100Robot(Node):
     def __init__(self):
         # 配置Python logging with colors (minimal changes)
         colorlog.basicConfig(
-            # level=logging.DEBUG,
-            level=logging.INFO,
+            level=logging.DEBUG,
+            # level=logging.INFO,
             format='%(log_color)s[%(levelname)s][%(filename)s:%(lineno)d] %(message)s',
             datefmt='%Y-%m-%d %H:%M:%S'
         )
@@ -809,40 +807,19 @@ def main():
     tcp_init_pose = [0.0, -0.24, 0.08, 0.71, 0.0, 0.0, 0.71]
     tcp_init_pose1 = [0.1, -0.24, 0.28, 0.71, 0.0, 0.0, 0.71]
 
-    tcp_position_a = [ 0.1, -0.15, 0.05]    
-    tcp_position_b = [-0.1, -0.15, 0.1]
+    tcp_position_a = [ 0.15, -0.25, 0.05]    
+    tcp_position_b = [-0.15, -0.25, 0.05]
     tcp_position_c = [-0.15, -0.25, 0.05]
     tcp_position_d = [-0.15, -0.25, 0.1]
     so100_robot = So100Robot()
-    # # so100_robot.
-    # arm_joints = so100_robot.arm.get_joints()
-    # print("arm_joints: ", arm_joints)
-    # so100_robot.arm.move_zero()
-    # so100_robot.arm.move_home()
-    so100_robot.arm.move_up()
-
-    # joints = so100_robot.arm.get_joints()
-    # print("joints: ", joints)
-    # joints[0] += 0.2
-    # so100_robot.arm.set_joints(joints, wait=True, timeout=20, tolerance=0.1)
 
     # so100_robot.arm.move_zero(wait=True)
-    # so100_robot.arm.move_up(wait=True)
-    # so100_robot.arm.move_home(wait=True)
+    so100_robot.arm.move_line(tcp_position_a, tcp_position_b, wait=True, timeout=20, tolerance=0.1)
 
-    # gripper_joint = so100_robot.gripper.get_joint()
-    # print("gripper_joint: ", gripper_joint)
-    # so100_robot.gripper.set_joint(1.6, wait=True, timeout=20, tolerance=0.1)
-    # gripper_joint = so100_robot.gripper.get_joint()
-    # print("gripper_joint: ", gripper_joint)
-
-    # tcp_init_pose[0] += 0.1
-    # so100_robot.arm.tcp_move_to_pose(tcp_init_pose, wait=True, timeout=20, tolerance=0.1)
-    # tcp_init_pose[2] -= 0.05
-    # so100_robot.arm.tcp_move_to_pose(tcp_init_pose, wait=True, timeout=20, tolerance=0.1)
-
-    # so100_robot.gripper.set_joint(0.5, wait=True, timeout=20, tolerance=0.1)
-
+    # while True:
+    #     joints = so100_robot.get_joints()
+    #     print(f'joints: {joints}')  
+    #     time.sleep(0.01)
 
 if __name__ == '__main__':
     main()

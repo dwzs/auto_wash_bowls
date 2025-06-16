@@ -104,7 +104,7 @@ class So100Driver(Node):
         """将脉冲值转换为关节角度(弧度)"""
         joints_rad = []
         for i, pulse in enumerate(pulses):
-            joints_rad.append(self._pulse_to_rad_offseted(pulse, i+1))
+            joints_rad.append(self._pulse_to_rad_offseted(pulse, i+1) * self.servo_dir[i])
         return joints_rad
 
     def initialize_hardware(self):
@@ -177,8 +177,8 @@ class So100Driver(Node):
     def read_joints(self):
         """读取当前舵机零位偏移后的位置(弧度)"""
         joints_pulse = self.read_original_joints()
-        for i, joint_pulse in enumerate(joints_pulse):
-            joints_pulse[i] = joint_pulse * self.servo_dir[i]
+        # for i, joint_pulse in enumerate(joints_pulse):
+        #     joints_pulse[i] = joint_pulse * self.servo_dir[i]
         return self._pulses_to_rads_offseted(joints_pulse)
 
     def write_joint(self, servo_id: int, joint_rad: int, speed: int = 200, acceleration: int = 100):
