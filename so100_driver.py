@@ -54,7 +54,7 @@ class So100Driver(Node):
         self.publish_rate = 100
 
         self.joint_state_publisher = self.create_publisher(
-            JointState, 'so100_joint_states', int(self.publish_rate) )
+            JointState, 'so100_joints_states', int(self.publish_rate) )
         self.command_subscriber = self.create_subscription(
             JointState, 'so100_joints_commands', 
             self.command_callback, 10)

@@ -16,6 +16,7 @@ from roboticstoolbox import ERobot
 import os
 from spatialmath import SE3
 import colorlog
+import traceback
 
 
 def format_to_2dp(value: Any) -> Any:
@@ -288,7 +289,8 @@ class Arm:
                 tol = 0.001,
                 joint_limits=True,
                 ilimit=1000,  # Increased iteration limit per search
-                slimit=150    # Increased search limit (restarts)
+                slimit=150,    # Increased search limit (restarts)
+                joint_limits = True
             )
             
             # ik_LM 返回 (q, success, iterations, searches, residual)
@@ -313,7 +315,6 @@ class Arm:
                 
         except Exception as e:
             self.logger.error(f"逆解计算出错: {e}")
-            import traceback
             self.logger.error(traceback.format_exc())
             return None
 
@@ -396,7 +397,7 @@ class Arm:
         elif len(target_pose_list) == 7:
             # 完整位姿信息
             full_target_pose = list(target_pose_list)
-            self.logger.debug(f"移动到完整位姿: 位置{format_to_2dp(target_pose_list[:3])}, 姿态{format_to_2dp(target_pose_list[3:])}")
+            self.logger.debug(f"移动到位姿: 位置{format_to_2dp(target_pose_list[:3])}, 姿态{format_to_2dp(target_pose_list[3:])}")
             
         else:
             self.logger.error(f"目标位姿参数长度错误: {len(target_pose_list)}, 应为3或7")
@@ -533,8 +534,11 @@ class Arm:
             distance = np.linalg.norm(np.array(position_b) - np.array(position_a))
             
             # 根据距离确定插值点数量 (每1cm一个点)
-            num_points = max(int(distance * 100), 2)  # 至少2个点
-            num_points = min(num_points, 50)  # 最多50个点
+            max_num_points = 100
+            min_num_points = 2
+            point_per_meter = 100
+            num_points = max(int(distance * point_per_meter), min_num_points)  # 至少2个点
+            num_points = min(num_points, max_num_points)  # 最多100个点
             
             self.logger.info(f"直线距离: {distance:.3f}m, 插值点数: {num_points}")
             
@@ -571,9 +575,92 @@ class Arm:
             
         except Exception as e:
             self.logger.error(f"直线运动过程中发生错误: {e}")
-            import traceback
             self.logger.error(traceback.format_exc())
             return False
+
+    def move_direction_abs(self, direction: list[float], wait=True, timeout=10.0, tolerance=0.01):
+        """
+        控制机械臂TCP从当前位置沿指定向量运动
+        
+        参数:
+            direction: 移动方向向量 [x, y, z];绝对坐标系
+            distance: 移动距离
+
+        返回:
+            bool: 是否成功完成移动
+        """
+        try:
+            # 获取当前TCP姿态
+            current_tcp = self.get_tcp_pose()   
+            if current_tcp is None:
+                self.logger.error("无法获取当前TCP姿态")
+                return False
+            
+            # 获取当前TCP的旋转（四元数）
+            tcp_quat = current_tcp[3:]  # [qx, qy, qz, qw]
+            # 转换为旋转矩阵
+            rot = Rotation.from_quat(tcp_quat).as_matrix()
+            # 将direction从TCP系变换到世界系
+            # world_direction = rot @ np.array(direction)
+            # 计算新位置
+            new_position = np.array(current_tcp[:3]) + direction
+            
+            # 使用当前姿态构建完整位姿
+            # current_orientation = current_tcp[3:]  # [qx, qy, qz, qw]
+            position_target = list(new_position)
+            print("current_tcp: ", current_tcp)
+            print("direction: ", direction)
+            print("position_target: ", position_target)
+
+
+            self.logger.info(f"开始沿方向移动: {format_to_2dp(direction)} ")
+
+            # 执行直线运动
+            return self.move_line(current_tcp[:3], position_target, wait, timeout, tolerance)
+        
+        except Exception as e:
+            self.logger.error(f"沿方向移动过程中发生错误: {e}")
+            self.logger.error(traceback.format_exc())
+
+    def move_direction_relative(self, direction: list[float], distance: float, wait=True, timeout=10.0, tolerance=0.01):
+        """
+        控制机械臂TCP从当前位置沿指定方向移动指定距离
+        
+        参数:
+            direction: 移动方向向量 [x, y, z]；相对坐标系
+            distance: 移动距离
+        
+        返回:
+            bool: 是否成功完成移动
+        """
+        try:
+            # 获取当前TCP姿态
+            current_tcp = self.get_tcp_pose()   
+            if current_tcp is None:
+                self.logger.error("无法获取当前TCP姿态")
+                return False
+            
+            # 获取当前TCP的旋转（四元数）
+            tcp_quat = current_tcp[3:]  # [qx, qy, qz, qw]
+            # 转换为旋转矩阵
+            rot = Rotation.from_quat(tcp_quat).as_matrix()
+            # 将direction从TCP系变换到世界系
+            world_direction = rot @ np.array(direction)
+            # 计算新位置
+            new_position = np.array(current_tcp[:3]) + world_direction * distance
+
+            # 使用当前姿态构建完整位姿
+            current_orientation = current_tcp[3:]  # [qx, qy, qz, qw]
+            pose_target = list(new_position) + current_orientation
+
+            self.logger.info(f"开始沿相对方向移动: {format_to_2dp(direction)} 距离 {distance:.3f}m")
+
+            # 执行直线运动
+            return self.move_line(current_tcp[:3], pose_target, wait, timeout, tolerance)
+        
+        except Exception as e:
+            self.logger.error(f"沿方向移动过程中发生错误: {e}")
+            self.logger.error(traceback.format_exc())
 
 
 class So100Robot(Node):
@@ -582,8 +669,8 @@ class So100Robot(Node):
     def __init__(self):
         # 配置Python logging with colors (minimal changes)
         colorlog.basicConfig(
-            level=logging.DEBUG,
-            # level=logging.INFO,
+            # level=logging.DEBUG,
+            level=logging.INFO,
             format='%(log_color)s[%(levelname)s][%(filename)s:%(lineno)d] %(message)s',
             datefmt='%Y-%m-%d %H:%M:%S'
         )
@@ -625,7 +712,7 @@ class So100Robot(Node):
             JointState, 'so100_joints_commands', self.pub_rate)
         
         self.joint_state_subscriber = self.create_subscription(
-            JointState, 'so100_joint_states', self._joint_state_callback, 10)
+            JointState, 'so100_joints_states', self._joint_state_callback, 10)
         
         # 创建机械臂和夹爪实例
         self.arm = Arm(self)
@@ -779,9 +866,9 @@ class So100Robot(Node):
             time.sleep(0.01)
             i += 1
         self.logger.warning("到达目标位置超时")
-        self.logger.debug(f"target_joint_positions: {joint_positions}")
-        self.logger.debug(f"current_joint_positions: {format_to_2dp(self.current_joint_positions)}")
-        self.logger.debug(f"有关节误差超过{tolerance}的关节，当前误差: {joints_diffs}")
+        self.logger.warning(f"target_joint_positions: {joint_positions}")
+        self.logger.warning(f"current_joint_positions: {format_to_2dp(self.current_joint_positions)}")
+        self.logger.warning(f"有关节误差超过{tolerance}的关节，当前误差: {joints_diffs}")
         
         return False
     
@@ -802,7 +889,8 @@ def main():
     """示例用法"""
 
     ## so100 test
-    init_joints = [0, 0, 0, 0, 0]
+    init_joints = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    arm_joints = [0.2, 0.0, 0.1, 0.0, 0.0]
 
     tcp_init_pose = [0.0, -0.24, 0.08, 0.71, 0.0, 0.0, 0.71]
     tcp_init_pose1 = [0.1, -0.24, 0.28, 0.71, 0.0, 0.0, 0.71]
@@ -814,7 +902,28 @@ def main():
     so100_robot = So100Robot()
 
     # so100_robot.arm.move_zero(wait=True)
-    so100_robot.arm.move_line(tcp_position_a, tcp_position_b, wait=True, timeout=20, tolerance=0.1)
+    # so100_robot.arm.move_up(wait=True)
+    so100_robot.arm.move_line(tcp_position_a, tcp_position_b, wait=True, timeout=20, tolerance=0.04)
+
+    # so100_robot.arm.move_direction_abs([0.1, 0.0, 0.0], wait=True, timeout=20, tolerance=0.1)
+    # so100_robot.arm.move_direction_abs([-0.1, 0.0, 0.0], wait=True, timeout=20, tolerance=0.05)
+
+    # so100_robot.arm.move_direction_abs([0, 0.1, 0.0], wait=True, timeout=20, tolerance=0.1)
+    # so100_robot.arm.move_direction_abs([0, -0.1, 0.0], wait=True, timeout=20, tolerance=0.1)
+
+    # so100_robot.arm.move_direction_abs([0, 0.0, 0.1], wait=True, timeout=20, tolerance=0.1)
+    # so100_robot.arm.move_direction_abs([0, 0.0, -0.1], wait=True, timeout=20, tolerance=0.1)
+
+    # so100_robot.arm.move_direction_relative([0, 0, 0.05], 0.1, wait=True, timeout=20, tolerance=0.1)
+
+
+    # so100_robot.arm.set_joints(arm_joints, wait=True, timeout=20, tolerance=0.1)
+    # joints = so100_robot.arm.get_joints()
+    # dif = [abs(joints[i] - arm_joints[i]) for i in range(len(arm_joints))]
+    # print(f'dif: {dif}')
+    # print(f'joints: {joints}')
+
+
 
     # while True:
     #     joints = so100_robot.get_joints()
