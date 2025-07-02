@@ -1,7 +1,7 @@
 import cv2
 import numpy as np
 import time
-from ellipse_extracter import EllipseExtracter
+from sense.ellipses_extracter import EllipseExtracter
 
 def main():
     # Initialize webcam

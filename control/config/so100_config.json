@@ -1,0 +1,23 @@
+{
+  "robot": {
+    "servo_ids": [1, 2, 3, 4, 5, 6],
+    "servo_dir": [-1, 1, 1, 1, 1, 1],
+    "port": "/dev/ttyACM0",
+    "baudrate": 1000000,
+    "angle_to_pulse_ratio": 651.74,
+    "speed": 200,
+    "acceleration": 100
+  },
+  "calibration": {
+    "calibration_file": "control/calibration/so100_calibration.json"
+  },
+  "ros": {
+    "topics": {
+      "joint_commands": "/so100/cmd/joints",
+      "joint_states": "/so100/state/joints"
+    },
+    "node_name": "So100Robot",
+    "pub_rate": 100,
+    "queue_size": 10
+  }
+}

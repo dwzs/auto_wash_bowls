@@ -8,7 +8,7 @@ from typing import Optional, List, Tuple, Dict
 
 # 添加上级目录到路径以导入 scservo_sdk
 sys.path.append(".")
-from scservo_sdk import *
+from .scservo_sdk import *
 
 class FTServoWrapper:
     """飞特舵机控制器 - 基于 scservo_sdk 的封装"""
@@ -82,7 +82,7 @@ class FTServoWrapper:
             print(f"Ping error: {self.packet_handler.getRxPacketError(error)}")
             return False, None
             
-        print(f"[ID:{servo_id:03d}] ping Succeeded. Model number: {model_number}")
+        # print(f"[ID:{servo_id:03d}] ping Succeeded. Model number: {model_number}")
         return True, model_number
     
     def scan_servos(self, start_id: int = 1, end_id: int = 253) -> List[int]:

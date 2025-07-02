@@ -1,0 +1,16 @@
+{
+    "camera_id": 0,
+    "ellipse_extracter": {
+      "min_points": 200,
+      "ellipse_params": {
+        "num_samples": 20,
+        "sample_size": 5,
+        "tolerance": 2
+      },
+      "confidence_threshold": 0.8
+    },
+    "ellipse_topic": "/sense/ellipses",
+    "ellipse_image_topic": "/sense/ellipses/image",
+    "timer_period": 0.1,
+    "publish_image": false
+  }

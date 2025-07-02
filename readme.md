@@ -138,16 +138,74 @@ id:
 
 
 
-第一个关节读取有问题，可能是标定的0点不对
+1. 代码结构优化。
+2. 添加仿真模式。
+3. urdf 添加关节limits， ik是否会自动考虑这些limits。
+
+FT_server:
+    存放飞特舵机sdk
+
+resources：
+    urdf
+
+sense：
+    提取椭圆：
+        ellipses_extractor.py # 负责图像处理，提取出椭圆位置
+        ellipses_publisher.py # 通过topic /sense/ellipses[/vision_msgs/Detection2DArray] 发布多个椭圆以及对应的置信度
+
+    提取夹爪:
+        gripper_extractor.py # 负责图像处理，提取出夹爪位置
+        gripper_publisher.py # 通过topic /sense/grippers[/vision_msgs/Detection2DArray]发布多个夹爪以及对应的置信度
+
+    config.json
+
+control：
+    so100_driver.py # 与舵机内单片机通过串口通信。
+    so100_driver_node.py # 对 so100_driver接口包装，通过ros与外部数据通信
+        pub:/so100/state/joints[sensor_msgs/JointState]
+        sub:/so100/cmd/joints[sensor_msgs/JointState] 
+
+    arm_controller.py # 负责ik,fk，以及机械臂常用控制接口定义，与ros无关。
+    arm_controller_interfaces.py # 对arm_controller接口包装，通过ros通信与so100_driver_node交互。
+        pub: /so100/cmd/joints[sensor_msgs/JointState] 
+        sub: /so100/state/joints[sensor_msgs/JointState]
+
+        flange_move_to_pose(pose) -> bool # pose( list[x, y, z, w, rx, ry, rz, w] )
+        flange_get_pose() -> list[x, y, z, w, rx, ry, rz, w]
+
+        tcp_move_to_pose(self, pose, wait=True, timeout=20.0, joint_tolerance=0.01) -> bool
+        tcp_get_pose -> list[x, y, z, w, rx, ry, rz, w]
+
+        get_joints() -> list[j1, j2, j3, j4, j5]
+        set_joints(joints)-> bool
+
+    
+    gripper_controller.py  # 处理gripper 与so00见的关系，如索引对应关系，定义基本接口。
+        pub: /driver/cmd/joints[sensor_msgs/JointState] 
+        sub: /driver/state/joints[sensor_msgs/JointState]
+
+        open() -> bool
+        close() -> bool
+        set_joint() -> bool
+        get_joint() -> float
+        set_opening_percentage(percent) -> bool
+        get_opening_percentage() -> float
+
+    so100_joints_control_gui_launch.py
+
+    config.json
+
+simulation：
+    so100_rviz_launch.py # 启动rviz，加载so100urdf。
 
 
+全局配置参数与局部参数
+比如log，希望全局配置。
 
+通信层，应用层，算法层，是不是应该分开。层与层通过接口通信。
 
-
-
-
-
-
-
+通信层：数据收发，应用层接口封装
+应用层：逻辑，
+算法层：算法。
 
 

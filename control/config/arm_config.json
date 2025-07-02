@@ -1,0 +1,22 @@
+{
+    "joint_indices": [0, 1, 2, 3, 4],
+    "gripper_joint_index": 5,
+    "position_tolerance": 0.01,
+    "default_timeout": 10.0,
+    "calibration_file": "control/calibration/so100_calibration.json",
+    "urdf_file": "resources/urdf/so100_tcp.urdf",
+    "ros": {
+        "cmd_topic": "/so100/cmd/joints",
+        "state_topic": "/so100/state/joints"
+    },
+    "kinematics": {
+        "default_mask": [1, 1, 1, 0, 1, 1],
+        "ik_tolerance": 0.001,
+        "ik_max_iterations": 1000,
+        "ik_max_searches": 150
+    },
+    "trajectory": {
+        "max_points": 100,
+        "points_per_meter": 100
+    }
+} 

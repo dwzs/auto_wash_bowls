@@ -1,0 +1,23 @@
+{
+    "joint_index": 5,
+    "open_joint": 1.2,
+    "close_joint": -0.15,
+    "default_speed": 200,
+    "default_timeout": 5.0,
+    "position_tolerance": 0.01,
+    "limits": {
+        "min_joint": 0.0,
+        "max_joint": 1.0,
+        "max_speed": 500,
+        "max_force": 100
+    },
+    "safety": {
+        "enable_force_limit": true,
+        "max_continuous_time": 10.0,
+        "emergency_stop_enabled": true
+    },
+    "ros": {
+        "cmd_topic": "/so100/cmd/joints",
+        "state_topic": "/so100/state/joints"
+    }
+} 
