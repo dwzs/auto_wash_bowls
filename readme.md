@@ -3,12 +3,6 @@
 
 
 ## git wash bowls：
-dwzs_token: ********
-用http方式推代码，避免ssh遇到的问题：
-	1. 设置http url： git remote set-url origin https://github.com/dwzs/auto_wash_bowls.git
-	2. 生成github token
-	3. 推送代码：（注意输入密码时输入token）
-	4. 永久保存token： git config --global credential.helper store
 
 启动仿真机械臂： pyisim so100_sim_ros_launch.py
 启动rviz可视化以及gui关节控制： ros2 launch so100_robot_description display_true_robot.launch.py
@@ -165,19 +159,17 @@ control：
         pub:/so100/state/joints[sensor_msgs/JointState]
         sub:/so100/cmd/joints[sensor_msgs/JointState] 
 
-    arm_controller.py # 负责ik,fk，以及机械臂常用控制接口定义，与ros无关。
-    arm_controller_interfaces.py # 对arm_controller接口包装，通过ros通信与so100_driver_node交互。
+    arm_controller.py # ik,fk，通信，控制接口
         pub: /so100/cmd/joints[sensor_msgs/JointState] 
         sub: /so100/state/joints[sensor_msgs/JointState]
 
-        flange_move_to_pose(pose) -> bool # pose( list[x, y, z, w, rx, ry, rz, w] )
-        flange_get_pose() -> list[x, y, z, w, rx, ry, rz, w]
-
-        tcp_move_to_pose(self, pose, wait=True, timeout=20.0, joint_tolerance=0.01) -> bool
-        tcp_get_pose -> list[x, y, z, w, rx, ry, rz, w]
-
         get_joints() -> list[j1, j2, j3, j4, j5]
-        set_joints(joints)-> bool
+        get_pose(tcp) -> list[x, y, z, w, rx, ry, rz, w]
+
+        set_joints(joints)-> bool # 不要该函数？？
+        move_to_joints(joints)-> bool
+        move_to_pose(pose, timeout, tolerance, tcp) -> bool
+        
 
     
     gripper_controller.py  # 处理gripper 与so00见的关系，如索引对应关系，定义基本接口。
@@ -209,3 +201,43 @@ simulation：
 算法层：算法。
 
 
+
+### 问题记录：
+
+1. so100 不断获取当前关节，并控制其运动到当前关节，当给关节某个方向一个力时，关节会不断往力的方向抖动前进。
+    原因： 应该是齿轮间隙导致的，力会导致关节往间隙范围内最靠近力的方向靠拢。
+
+    def __init__(self, config_file=None):
+    def _spin_thread(self):
+    def _load_robot_model(self):
+    def _joint_state_callback(self, msg):
+    def _wait_for_connection(self, timeout=10.0):
+    def _send_arm_command(self, arm_joints: List[float]) -> bool:
+    def _out_joint_limits(self, joints: List[float]) -> List[float]:
+    def _wait_for_joints(self, target_joints: List[float], timeout: float = 100, tolerance: float = 0.04) -> bool:
+    def _create_pose_matrix(self, pose_components):
+    def _forward_kinematics(self, joint_angles, use_tool=True):
+    def _inverse_kinematics(self, target_pose_list, use_tool=True):
+
+    def get_joints(self) -> Optional[List[float]]:
+    def get_pose(self, tcp: bool = True) -> Optional[List[float]]:
+
+    def move_to_joints(self, joints: List[float], timeout: float = 100, tolerance: float = 0.04) -> bool:
+     def move_to_pose(self, target_pose_list, timeout: float = 100, tolerance: float = 0.04, tcp: bool = True) -> bool：
+     def move_line(self, start_position, end_position, step=0.01, timeout=0, tcp: bool = True) -> bool：
+
+    def move_home(self, timeout: float = None) -> bool:
+    def move_up(self, timeout: float = None) -> bool:
+    def move_zero(self, timeout: float = None) -> bool:
+
+
+函数：
+    入参
+    返回
+    内容： 
+        流程
+        数学运算
+
+    函数结果：成功，失败
+
+        

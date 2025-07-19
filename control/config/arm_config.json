@@ -1,8 +1,8 @@
 {
     "joint_indices": [0, 1, 2, 3, 4],
     "gripper_joint_index": 5,
-    "position_tolerance": 0.01,
-    "default_timeout": 10.0,
+    "position_tolerance": 0.02,
+    "default_timeout": 0.0,
     "calibration_file": "control/calibration/so100_calibration.json",
     "urdf_file": "resources/urdf/so100_tcp.urdf",
     "ros": {
