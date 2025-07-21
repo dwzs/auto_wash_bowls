@@ -223,8 +223,8 @@ simulation：
     def get_pose(self, tcp: bool = True) -> Optional[List[float]]:
 
     def move_to_joints(self, joints: List[float], timeout: float = 100, tolerance: float = 0.04) -> bool:
-     def move_to_pose(self, target_pose_list, timeout: float = 100, tolerance: float = 0.04, tcp: bool = True) -> bool：
-     def move_line(self, start_position, end_position, step=0.01, timeout=0, tcp: bool = True) -> bool：
+    def move_to_pose(self, target_pose_list, timeout: float = 100, tolerance: float = 0.04, tcp: bool = True) -> bool：
+    def move_line(self, start_position, end_position, step=0.01, timeout=0, tcp: bool = True) -> bool：
 
     def move_home(self, timeout: float = None) -> bool:
     def move_up(self, timeout: float = None) -> bool:

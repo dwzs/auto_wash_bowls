@@ -51,6 +51,7 @@ class Arm(Node):
         self.current_all_joints = None
         self.current_arm_joints = None
         self.lock = threading.Lock()
+        self._shutdown = False
         
         # 启动后台线程处理ROS消息
         self.spin_thread = threading.Thread(target=self._spin_thread, daemon=True)
@@ -77,14 +78,18 @@ class Arm(Node):
         # 等待连接
         if not self._wait_for_connection():
             logger.error("Arm __init__ failed: _wait_for_connection failed")
-            return False
+            raise RuntimeError("Failed to wait for connection")
 
         logger.info("Arm __init__ success")
     
     def _spin_thread(self):
         """后台线程处理ROS消息"""
-        while rclpy.ok():
-            rclpy.spin_once(self, timeout_sec=0.01)
+        while rclpy.ok() and not self._shutdown:
+            try:
+                rclpy.spin_once(self, timeout_sec=0.01)
+            except Exception as e:
+                logger.error(f"Spin thread error: {e}")
+                break
     
     def _load_robot_model(self):
         """加载机器人URDF模型"""
@@ -110,6 +115,9 @@ class Arm(Node):
     
     def _joint_state_callback(self, msg):
         """关节状态回调"""
+        if self._shutdown:  # 添加shutdown检查
+            return
+        
         with self.lock:
             self.current_all_joints = list(msg.position)
             if len(self.current_all_joints) >= len(self.cfg["joint_indices"]):
@@ -227,7 +235,7 @@ class Arm(Node):
             logger.error(f"正运动学计算失败: {e}")
             return None
     
-    def _inverse_kinematics(self, target_pose_list, use_tool=True):
+    def _inverse_kinematics(self, target_pose_list, ik_init_pose, use_tool=True):
         """计算逆运动学"""
         if self.robot_model is None:
             logger.error("机器人模型未加载")
@@ -238,12 +246,7 @@ class Arm(Node):
         try:
             target_pose_matrix = self._create_pose_matrix(target_pose_list)
             
-            current_joints = self.get_joints()
-            if current_joints is None:
-                logger.error("无法获取当前关节角度")
-                return None
-            q_guess = np.array(current_joints)
-
+            q_guess = np.array(ik_init_pose)
             mask = self.cfg["kinematics"]["default_mask"]
             
             result = self.robot_model.ik_LM(
@@ -274,6 +277,36 @@ class Arm(Node):
             logger.error(f"逆解计算失败: {e}")
             return None
     
+
+    def try_get_valid_ik_joints(self, target_pose_list, use_tool=True):
+        # 1. 使用当前关节角度逆解
+        current_joints = self.get_joints()
+        if current_joints is None:
+            logger.error("get_joints failed !")
+            return None
+
+        joint_solution = self._inverse_kinematics(target_pose_list, current_joints, use_tool=use_tool)
+        if joint_solution is None:
+            logger.error(f"_inverse_kinematics failed !")
+            return None
+
+        # 2. 如果关节超出限制，使用零初始位姿逆解
+        if self._out_joint_limits(joint_solution):
+            logger.warning("joints out of limits, try zero init pose for IK !")
+            init_ik_pose = [0.0, 0.0, 0.0, 0.0, 0.0]
+            joint_solution = self._inverse_kinematics(target_pose_list, init_ik_pose, use_tool=use_tool)
+
+        if joint_solution is None:
+            logger.error(f"joint_solution is None !")
+            return None
+        
+        # 3. 检查关节是否超出限制
+        if self._out_joint_limits(joint_solution):
+            logger.error("joints out of limits !")
+            return None
+
+        return joint_solution
+
     # ==================== 基础接口 ====================
     
     def get_joints(self) -> Optional[List[float]]:
@@ -337,9 +370,13 @@ class Arm(Node):
             logger.error("send_arm_command failed !")
             return False
         
-        # 根据timeout决定是否等待
-        return self._wait_for_joints(joints, timeout, tolerance)
+        if not self._wait_for_joints(joints, timeout, tolerance):
+            logger.error("wait for joints failed !")
+            return False
+
+        return True
     
+
     def move_to_pose(self, target_pose_list, timeout: float = 100, tolerance: float = 0.04, tcp: bool = True) -> bool:
         """移动到目标位姿
         
@@ -366,15 +403,18 @@ class Arm(Node):
             logger.error(f"target pose length({len(target_pose_list)}) != 3 or 7 !")
             return False
         
-        joint_solution = self._inverse_kinematics(full_target_pose, use_tool=tcp)
-        
-        if joint_solution is None:
-            logger.error(f"_inverse_kinematics failed !")
+        ik_joints = self.try_get_valid_ik_joints(full_target_pose, use_tool=tcp)
+        if ik_joints is None:
+            logger.error(f"try_get_valid_ik_joints failed !")
             return False
-        
-        return self.move_to_joints(joint_solution, timeout, tolerance)
 
-    def move_line(self, start_position, end_position, step=0.01, timeout=0, tcp: bool = True) -> bool:
+        if not self.move_to_joints(ik_joints, timeout, tolerance):
+            logger.error("move_to_joints failed !")
+            return False
+
+        return True
+
+    def move_line(self, start_position, end_position, step=0.01, timeout=100, tcp: bool = True) -> bool:
         """沿直线运动 - 先计算所有轨迹点，再依次运动"""
         start_position = np.array(start_position)
         end_position = np.array(end_position)
@@ -433,6 +473,13 @@ class Arm(Node):
             timeout = 100
         return self.move_to_joints(self.zero_joints, timeout=timeout)
 
+    def destroy_node(self):
+        """安全销毁节点"""
+        self._shutdown = True
+        if hasattr(self, 'spin_thread'):
+            self.spin_thread.join(timeout=1.0)  # 等待线程结束
+        super().destroy_node()
+
 
 def main():
     """测试函数"""
@@ -479,69 +526,73 @@ def main():
         # position = [0.1, -0.25, 0.1]
         # arm.move_to_pose(position)
 
-        # 4. 测试沿直线运动
-        time_to_sleep = 3
-        pose1 = [-0.1, -0.2, 0.1, 0, 0, 0, 1]
-        pose2 = [0.1, -0.2, 0.1, 0, 0, 0, 1]
-        pose3 = [0.1, -0.2, 0.2, 0, 0, 0, 1]
-        pose4 = [-0.1, -0.2, 0.2, 0, 0, 0, 1]
-        # arm.move_line(start_pose, end_pose)
-        arm.move_to_pose(pose1, timeout=100)
-        print(f"pose1_target:  {pose1}")
-        print(f"pose1_actual: {arm.get_pose()}")
-        current_joints = arm.get_joints()
-        joint_diff = [TARGET_JOINTS[i] - current_joints[i] for i in range(5)]
-        print(f"target_joints: {TARGET_JOINTS}")
-        print(f"current_joints: {current_joints}")
-        print(f"joint_diff: {joint_diff}")
-        print(f"sleep {time_to_sleep} seconds..........")
-        time.sleep(time_to_sleep)
-        input("press enter to continue..........")
-
-        arm.move_to_pose(pose2, timeout=100)
-        print(f"pose2_target:  {pose2}")
-        print(f"pose2_actual: {arm.get_pose()}")
-        current_joints = arm.get_joints()
-        joint_diff = [TARGET_JOINTS[i] - current_joints[i] for i in range(5)]
-        print(f"target_joints: {TARGET_JOINTS}")
-        print(f"current_joints: {current_joints}")
-        print(f"joint_diff: {joint_diff}")
-        print(f"sleep {time_to_sleep} seconds..........")
-        time.sleep(time_to_sleep)
-        input("press enter to continue..........")
-
-        arm.move_to_pose(pose3, timeout=100)
-        print(f"pose3_target:  {pose3}")
-        print(f"pose3_actual: {arm.get_pose()}")
-        current_joints = arm.get_joints()
-        joint_diff = [TARGET_JOINTS[i] - current_joints[i] for i in range(5)]
-        print(f"target_joints: {TARGET_JOINTS}")
-        print(f"current_joints: {current_joints}")
-        print(f"joint_diff: {joint_diff}")
-        print(f"sleep {time_to_sleep} seconds..........")
-        time.sleep(time_to_sleep)
-        input("press enter to continue..........")  
-
-        arm.move_to_pose(pose4, timeout=100)
-        print(f"pose4_target:  {pose4}")
-        print(f"pose4_actual: {arm.get_pose()}")
-        current_joints = arm.get_joints()
-        joint_diff = [TARGET_JOINTS[i] - current_joints[i] for i in range(5)]
-        print(f"target_joints: {TARGET_JOINTS}")
-        print(f"current_joints: {current_joints}")
-        print(f"joint_diff: {joint_diff}")
-        print(f"sleep {time_to_sleep} seconds..........")
-        time.sleep(time_to_sleep)   
-        input("press enter to continue..........")
-
-        # target_joints = [0.4703838954184185, 0.6513548026403266, -0.6820389428094926, 0.18219341869152395, -0.4395870829828459]
-        # arm.move_to_joints(target_joints, timeout=10, tolerance=0.01)
+        # # 4. 矩形运动
+        # time_to_sleep = 0
+        # pose1 = [-0.1, -0.2, 0.05, 0, 0, 0, 1]
+        # pose2 = [0.1, -0.2, 0.05, 0, 0, 0, 1]
+        # pose3 = [0.1, -0.2, 0.11, 0, 0, 0, 1]
+        # pose4 = [-0.1, -0.2, 0.11, 0, 0, 0, 1]
+        # # arm.move_line(start_pose, end_pose)
+        # arm.move_to_pose(pose1, timeout=100)
+        # print(f"pose1_target:  {pose1}")
+        # print(f"pose1_actual: {arm.get_pose()}")
         # current_joints = arm.get_joints()
         # joint_diff = [TARGET_JOINTS[i] - current_joints[i] for i in range(5)]
         # print(f"target_joints: {TARGET_JOINTS}")
         # print(f"current_joints: {current_joints}")
         # print(f"joint_diff: {joint_diff}")
+        # print(f"sleep {time_to_sleep} seconds..........")
+        # time.sleep(time_to_sleep)
+        # input("press enter to continue..........")
 
+        # arm.move_to_pose(pose2, timeout=100)
+        # print(f"pose2_target:  {pose2}")
+        # print(f"pose2_actual: {arm.get_pose()}")
+        # current_joints = arm.get_joints()
+        # joint_diff = [TARGET_JOINTS[i] - current_joints[i] for i in range(5)]
+        # print(f"target_joints: {TARGET_JOINTS}")
+        # print(f"current_joints: {current_joints}")
+        # print(f"joint_diff: {joint_diff}")
+        # print(f"sleep {time_to_sleep} seconds..........")
+        # time.sleep(time_to_sleep)
+        # input("press enter to continue..........")
+
+        # arm.move_to_pose(pose3, timeout=100)
+        # print(f"pose3_target:  {pose3}")
+        # print(f"pose3_actual: {arm.get_pose()}")
+        # current_joints = arm.get_joints()
+        # joint_diff = [TARGET_JOINTS[i] - current_joints[i] for i in range(5)]
+        # print(f"target_joints: {TARGET_JOINTS}")
+        # print(f"current_joints: {current_joints}")
+        # print(f"joint_diff: {joint_diff}")
+        # print(f"sleep {time_to_sleep} seconds..........")
+        # time.sleep(time_to_sleep)
+        # input("press enter to continue..........")  
+
+        # arm.move_to_pose(pose4, timeout=100)
+        # print(f"pose4_target:  {pose4}")
+        # print(f"pose4_actual: {arm.get_pose()}")
+        # current_joints = arm.get_joints()
+        # joint_diff = [TARGET_JOINTS[i] - current_joints[i] for i in range(5)]
+        # print(f"target_joints: {TARGET_JOINTS}")
+        # print(f"current_joints: {current_joints}")
+        # print(f"joint_diff: {joint_diff}")
+        # print(f"sleep {time_to_sleep} seconds..........")
+        # time.sleep(time_to_sleep)   
+        # input("press enter to continue..........")
+
+        # 直线运动
+        pose1 = [-0.1, -0.2, 0.05, 0, 0, 0, 1]
+        pose2 = [0.1, -0.2, 0.05, 0, 0, 0, 1]
+        pose3 = [0.1, -0.2, 0.11, 0, 0, 0, 1]
+        pose4 = [-0.1, -0.2, 0.11, 0, 0, 0, 1]
+        arm.move_line(pose1, pose2)
+        # input("press enter to continue..........")
+        # arm.move_line(pose2, pose3)
+        # input("press enter to continue..........")
+        # arm.move_line(pose3, pose4)
+        # input("press enter to continue..........")
+        # arm.move_line(pose4, pose1)
 
         # # 测试关节控制精度
         # # target_joints = [0.0,0.0,0.0,0.0,0.0]
@@ -590,12 +641,26 @@ def main():
         import traceback
         traceback.print_exc()
     finally:
+        # 按正确顺序清理资源
         if arm:
-            arm.destroy_node()
-        rclpy.shutdown()
+            try:
+                arm.destroy_node()
+            except Exception as e:
+                logger.error(f"Error destroying node: {e}")
+        
+        try:
+            rclpy.shutdown()
+        except Exception as e:
+            logger.error(f"Error shutting down rclpy: {e}")
 
 
 if __name__ == '__main__':
+    logger.remove()
+    logger.add(
+        os.sys.stdout,
+        format="<level>{level: <4}</level> | <cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>"
+    )
+
     main()
 
 
