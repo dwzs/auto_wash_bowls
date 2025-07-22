@@ -10,7 +10,7 @@
         "state_topic": "/so100/state/joints"
     },
     "kinematics": {
-        "default_mask": [1, 1, 1, 0, 1, 1],
+        "default_mask": [1, 1, 1, 1, 1, 1],
         "ik_tolerance": 0.001,
         "ik_max_iterations": 1000,
         "ik_max_searches": 150

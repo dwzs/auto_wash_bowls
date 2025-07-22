@@ -241,3 +241,14 @@ simulation：
     函数结果：成功，失败
 
         
+逆解问题：
+    1. 逆解失败
+    2. 关节超限
+
+
+    流程：
+        target_pose进来
+        调库开始逆解（mask， init_pose 可配）
+        得到solution
+        判断solution是否为none
+        判断solution的joints是否超限

@@ -86,7 +86,7 @@
   </link>
   <joint
     name="Rotation"
-    type="revolute">
+    type="continuous">
     <origin
       xyz="0 -0.0452 0.0165"
       rpy="1.5708 0 0" />
@@ -96,7 +96,6 @@
       link="Rotation_Pitch" />
     <axis
       xyz="0 1 0" />
-    <limit lower="-1.76" upper="1.8" effort="10.0" velocity="1.0"/>
   </joint>
   <link
     name="Upper_Arm">
@@ -140,7 +139,7 @@
   </link>
   <joint
     name="Pitch"
-    type="revolute">
+    type="continuous">
     <origin
       xyz="0 0.1025 0.0306"
       rpy="0 0 0" />
@@ -150,7 +149,6 @@
       link="Upper_Arm" />
     <axis
       xyz="1 0 0" />
-    <limit lower="-1.8" upper="1.9" effort="10.0" velocity="1.0"/>
   </joint>
   <link
     name="Lower_Arm">
@@ -194,7 +192,7 @@
   </link>
   <joint
     name="Elbow"
-    type="revolute">
+    type="continuous">
     <origin
       xyz="0 0.11257 0.028"
       rpy="0 0 0" />
@@ -204,7 +202,6 @@
       link="Lower_Arm" />
     <axis
       xyz="1 0 0" />
-    <limit lower="-1.78" upper="1.57" effort="10.0" velocity="1.0"/>
   </joint>
   <link
     name="Wrist_Pitch_Roll">
@@ -248,7 +245,7 @@
   </link>
   <joint
     name="Wrist_Pitch"
-    type="revolute">
+    type="continuous">
     <origin
       xyz="0 0.0052 0.1349"
       rpy="0 0 0" />
@@ -258,7 +255,6 @@
       link="Wrist_Pitch_Roll" />
     <axis
       xyz="1 0 0" />
-    <limit lower="-3.566" upper="0.19" effort="10.0" velocity="1.0"/>
   </joint>
   <link
     name="Fixed_Jaw">
@@ -302,7 +298,7 @@
   </link>
   <joint
     name="Wrist_Roll"
-    type="revolute">
+    type="continuous">
     <origin
       xyz="0 -0.0601 0"
       rpy="0 0 0" />
@@ -312,7 +308,6 @@
       link="Fixed_Jaw" />
     <axis
       xyz="0 1 0" />
-    <limit lower="-1.73" upper="1.71" effort="10.0" velocity="1.0"/>
   </joint>
   
   <link
@@ -367,7 +362,6 @@
       link="tcp" />
     <axis
       xyz="0 1 0" />
-    <limit lower="-0.15" upper="1.96" effort="10.0" velocity="1.0"/>  
   </joint>
   
 

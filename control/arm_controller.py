@@ -235,7 +235,7 @@ class Arm(Node):
             logger.error(f"正运动学计算失败: {e}")
             return None
     
-    def _inverse_kinematics(self, target_pose_list, ik_init_pose, use_tool=True):
+    def _inverse_kinematics(self, target_pose_list, ik_init_pose, mask, use_tool=True):
         """计算逆运动学"""
         if self.robot_model is None:
             logger.error("机器人模型未加载")
@@ -247,7 +247,6 @@ class Arm(Node):
             target_pose_matrix = self._create_pose_matrix(target_pose_list)
             
             q_guess = np.array(ik_init_pose)
-            mask = self.cfg["kinematics"]["default_mask"]
             
             result = self.robot_model.ik_LM(
                 target_pose_matrix,
@@ -278,14 +277,15 @@ class Arm(Node):
             return None
     
 
-    def try_get_valid_ik_joints(self, target_pose_list, use_tool=True):
+    def cacul_valid_ik_joints_from_pose(self, target_pose_list, use_tool=True):
         # 1. 使用当前关节角度逆解
         current_joints = self.get_joints()
         if current_joints is None:
             logger.error("get_joints failed !")
             return None
 
-        joint_solution = self._inverse_kinematics(target_pose_list, current_joints, use_tool=use_tool)
+        mask = self.cfg["kinematics"]["default_mask"]
+        joint_solution = self._inverse_kinematics(target_pose_list, current_joints, mask, use_tool=use_tool)
         if joint_solution is None:
             logger.error(f"_inverse_kinematics failed !")
             return None
@@ -294,7 +294,7 @@ class Arm(Node):
         if self._out_joint_limits(joint_solution):
             logger.warning("joints out of limits, try zero init pose for IK !")
             init_ik_pose = [0.0, 0.0, 0.0, 0.0, 0.0]
-            joint_solution = self._inverse_kinematics(target_pose_list, init_ik_pose, use_tool=use_tool)
+            joint_solution = self._inverse_kinematics(target_pose_list, init_ik_pose, mask, use_tool=use_tool)
 
         if joint_solution is None:
             logger.error(f"joint_solution is None !")
@@ -321,11 +321,8 @@ class Arm(Node):
     def get_pose(self, tcp: bool = True) -> Optional[List[float]]:
         """获取位姿
         
-        Args:
-            tcp: True获取TCP位姿，False获取flange位姿，默认为True
-        
         Returns:
-            位姿列表 [x, y, z, rx, ry, rz, rw] 或 None
+            位姿列表 [x, y, z, roll, pitch, yaw] 或 None (欧拉角格式)
         """
         joints = self.get_joints()
         if joints is None:
@@ -337,7 +334,13 @@ class Arm(Node):
             logger.error("forward_kinematics failed !")
             return None
         
-        return pose
+        # 转换四元数为欧拉角
+        position = pose[:3]
+        quaternion = pose[3:]
+        rotation = Rotation.from_quat(quaternion)
+        euler_angles = rotation.as_euler('xyz')  # [roll, pitch, yaw]
+        
+        return list(position) + list(euler_angles)
 
     
     # ==================== 运动控制接口 ====================
@@ -381,7 +384,9 @@ class Arm(Node):
         """移动到目标位姿
         
         Args:
-            target_pose_list: 目标位姿，可以是3个位置参数或7个完整位姿参数[x, y, z, rx, ry, rz, rw]
+            target_pose_list: 目标位姿，可以是：
+                - 3个位置参数: [x, y, z] (保持当前姿态)
+                - 6个位姿参数: [x, y, z, roll, pitch, yaw] (欧拉角，弧度)
             timeout: 超时时间
             tolerance: 位置容差
             tcp: True为TCP移动，False为flange移动，默认为True
@@ -396,16 +401,24 @@ class Arm(Node):
             
             full_target_pose = list(target_pose_list) + current_pose[3:]
 
-        elif len(target_pose_list) == 7:
-            full_target_pose = list(target_pose_list)
+        elif len(target_pose_list) == 6:
+            # 将欧拉角转换为四元数
+            position = target_pose_list[:3]
+            euler_angles = target_pose_list[3:]  # [roll, pitch, yaw]
+            
+            # 转换为四元数
+            rotation = Rotation.from_euler('xyz', euler_angles)
+            quaternion = rotation.as_quat()  # [qx, qy, qz, qw]
+            
+            full_target_pose = list(position) + list(quaternion)
 
         else:
-            logger.error(f"target pose length({len(target_pose_list)}) != 3 or 7 !")
+            logger.error(f"target pose length({len(target_pose_list)}) != 3 or 6 !")
             return False
         
-        ik_joints = self.try_get_valid_ik_joints(full_target_pose, use_tool=tcp)
+        ik_joints = self.cacul_valid_ik_joints_from_pose(full_target_pose, use_tool=tcp)
         if ik_joints is None:
-            logger.error(f"try_get_valid_ik_joints failed !")
+            logger.error(f"cacul_valid_ik_joints_from_pose failed !")
             return False
 
         if not self.move_to_joints(ik_joints, timeout, tolerance):
@@ -528,23 +541,25 @@ def main():
 
         # # 4. 矩形运动
         # time_to_sleep = 0
-        # pose1 = [-0.1, -0.2, 0.05, 0, 0, 0, 1]
-        # pose2 = [0.1, -0.2, 0.05, 0, 0, 0, 1]
-        # pose3 = [0.1, -0.2, 0.11, 0, 0, 0, 1]
-        # pose4 = [-0.1, -0.2, 0.11, 0, 0, 0, 1]
-        # # arm.move_line(start_pose, end_pose)
+        # pose1 = [-0.1, -0.2, 0.05, 0, 0, 0]
+        # pose2 = [0.1, -0.2, 0.05, 0, 0, 0]
+        # pose3 = [0.1, -0.2, 0.15, 0, 0, 0]
+        # pose4 = [-0.1, -0.2, 0.11, 0, 0, 0]
+
+        # print(f"\nmoving to pose1..........")
         # arm.move_to_pose(pose1, timeout=100)
         # print(f"pose1_target:  {pose1}")
         # print(f"pose1_actual: {arm.get_pose()}")
         # current_joints = arm.get_joints()
-        # joint_diff = [TARGET_JOINTS[i] - current_joints[i] for i in range(5)]
         # print(f"target_joints: {TARGET_JOINTS}")
         # print(f"current_joints: {current_joints}")
+        # joint_diff = [TARGET_JOINTS[i] - current_joints[i] for i in range(5)]
         # print(f"joint_diff: {joint_diff}")
         # print(f"sleep {time_to_sleep} seconds..........")
         # time.sleep(time_to_sleep)
         # input("press enter to continue..........")
 
+        # print(f"\nmoving to pose2..........")
         # arm.move_to_pose(pose2, timeout=100)
         # print(f"pose2_target:  {pose2}")
         # print(f"pose2_actual: {arm.get_pose()}")
@@ -557,6 +572,7 @@ def main():
         # time.sleep(time_to_sleep)
         # input("press enter to continue..........")
 
+        # print(f"\nmoving to pose3..........")
         # arm.move_to_pose(pose3, timeout=100)
         # print(f"pose3_target:  {pose3}")
         # print(f"pose3_actual: {arm.get_pose()}")
@@ -569,6 +585,7 @@ def main():
         # time.sleep(time_to_sleep)
         # input("press enter to continue..........")  
 
+        # print(f"\nmoving to pose4..........")
         # arm.move_to_pose(pose4, timeout=100)
         # print(f"pose4_target:  {pose4}")
         # print(f"pose4_actual: {arm.get_pose()}")
@@ -581,12 +598,12 @@ def main():
         # time.sleep(time_to_sleep)   
         # input("press enter to continue..........")
 
-        # 直线运动
-        pose1 = [-0.1, -0.2, 0.05, 0, 0, 0, 1]
-        pose2 = [0.1, -0.2, 0.05, 0, 0, 0, 1]
-        pose3 = [0.1, -0.2, 0.11, 0, 0, 0, 1]
-        pose4 = [-0.1, -0.2, 0.11, 0, 0, 0, 1]
-        arm.move_line(pose1, pose2)
+        # # 直线运动
+        # pose1 = [-0.1, -0.2, 0.05, 0, 0, 0, 1]
+        # pose2 = [0.1, -0.2, 0.05, 0, 0, 0, 1]
+        # pose3 = [0.1, -0.2, 0.11, 0, 0, 0, 1]
+        # pose4 = [-0.1, -0.2, 0.11, 0, 0, 0, 1]
+        # arm.move_line(pose1, pose2)
         # input("press enter to continue..........")
         # arm.move_line(pose2, pose3)
         # input("press enter to continue..........")
@@ -632,7 +649,18 @@ def main():
         #     print(current_joints)
         #     time.sleep(0.1)
 
-        # arm.move_zero()
+        zero_joints = [0.0, 0.0, 0.0, 0.0, 0.0]
+        pose1 = [0.0, -0.2, 0.3, 0.0, 0.0, 0.5]
+        # print(f"moving to zero_joints..........")
+        # arm.move_to_joints(zero_joints, timeout=10, tolerance=0.04)
+
+        # input(f"press enter moving to pose1:{pose1}")
+        arm.move_to_pose(pose1, timeout=10, tolerance=0.04)
+        current_pose = arm.get_pose()
+        print(f"current_pose: {current_pose}")
+
+
+
 
     except KeyboardInterrupt:
         logger.info("user interrupt")
