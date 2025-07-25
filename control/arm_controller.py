@@ -416,6 +416,7 @@ class Arm(Node):
             logger.error(f"target pose length({len(target_pose_list)}) != 3 or 6 !")
             return False
         
+        full_target_pose = self._tuning_rotation_reachable(full_target_pose)
         ik_joints = self.cacul_valid_ik_joints_from_pose(full_target_pose, use_tool=tcp)
         if ik_joints is None:
             logger.error(f"cacul_valid_ik_joints_from_pose failed !")
@@ -492,6 +493,123 @@ class Arm(Node):
         if hasattr(self, 'spin_thread'):
             self.spin_thread.join(timeout=1.0)  # 等待线程结束
         super().destroy_node()
+
+
+    def _get_theta_from_position(self, position):
+        """根据位置获取角度，范围 [0, 2π]"""
+        x, y = position[0], position[1]
+        theta = np.arctan2(y, x)
+        if theta < 0:
+            theta += 2 * np.pi
+        return theta
+
+    def _get_theta_from_rotation(self, rotation):
+        """根据旋转获取角度，范围 [0, 2π]"""
+        if len(rotation) != 3:
+            logger.error(f"rotation length({len(rotation)}) != 3")
+            return 0.0
+            
+        # 获取旋转后的Y轴向量
+        rot = Rotation.from_euler('xyz', rotation)
+        vy = rot.apply([0, 1, 0])
+        
+        # 在XY平面投影
+        x, y = vy[0], vy[1]
+        theta = np.arctan2(y, x)
+        
+        if theta < 0:
+            theta += 2 * np.pi
+        
+        # 针对so100夹爪，需要把夹爪y轴方向转180度
+        if theta >= np.pi:
+            theta = theta - np.pi
+        else:
+            theta = np.pi + theta
+        
+        return theta
+
+    def _roll_rotation(self, rotation, angle, axis=[0, 0, 1]):
+        """绕轴旋转欧拉角"""
+        if len(rotation) != 3:
+            logger.error(f"rotation length({len(rotation)}) != 3")
+            return rotation
+            
+        original_rotation = Rotation.from_euler('xyz', rotation)
+        axis = np.array(axis) / np.linalg.norm(axis)
+        axis_rotation = Rotation.from_rotvec(angle * axis)
+        combined_rotation = axis_rotation * original_rotation
+        return combined_rotation.as_euler('xyz').tolist()
+
+    def _is_rotation_reachable(self, pose):
+        """检查旋转是否可达"""
+        if len(pose) < 6:
+            logger.error(f"pose length({len(pose)}) < 6")
+            return True  # 默认可达
+            
+        position = pose[:3]
+        rotation = pose[3:6]  # 只取前3个旋转分量
+        
+        theta_position = self._get_theta_from_position(position)
+        theta_rotation = self._get_theta_from_rotation(rotation)
+        
+        return abs(theta_position - theta_rotation) < 0.01  # 1度容差
+
+    def _tuning_rotation_reachable(self, pose):
+        """调整位姿使旋转可达
+        
+        Args:
+            pose: [x, y, z, qx, qy, qz, qw] 四元数格式
+        
+        Returns:
+            调整后的位姿或原位姿
+        """
+        if len(pose) != 7:
+            logger.warning(f"pose length({len(pose)}) != 7, skip rotation tuning")
+            return pose
+        
+        try:
+            # 转换四元数为欧拉角
+            position = pose[:3]
+            quaternion = pose[3:]
+            
+            # 验证四元数
+            if len(quaternion) != 4:
+                logger.error(f"quaternion length({len(quaternion)}) != 4")
+                return pose
+                
+            rotation = Rotation.from_quat(quaternion).as_euler('xyz')
+            
+            # 构建6元素位姿用于检查
+            pose_6d = list(position) + list(rotation)
+            
+            # 检查是否需要调整
+            if self._is_rotation_reachable(pose_6d):
+                return pose  # 已经可达，不需要调整
+            
+            # 计算调整角度
+            theta_position = self._get_theta_from_position(position)
+            theta_rotation = self._get_theta_from_rotation(rotation)
+            theta_diff = theta_position - theta_rotation
+            
+            # 调整旋转
+            new_rotation = self._roll_rotation(rotation, theta_diff)
+            
+            # 转换回四元数
+            new_quat = Rotation.from_euler('xyz', new_rotation).as_quat()
+            new_pose = list(position) + list(new_quat)
+            
+            # 验证调整结果
+            new_pose_6d = list(position) + new_rotation
+            if self._is_rotation_reachable(new_pose_6d):
+                logger.debug(f"Rotation tuned: {np.degrees(theta_diff):.1f}°")
+                return new_pose
+            else:
+                logger.warning("Rotation tuning failed, using original pose")
+                return pose
+                
+        except Exception as e:
+            logger.error(f"Rotation tuning error: {e}")
+            return pose
 
 
 def main():
@@ -650,7 +768,7 @@ def main():
         #     time.sleep(0.1)
 
         zero_joints = [0.0, 0.0, 0.0, 0.0, 0.0]
-        pose1 = [0.0, -0.2, 0.3, 0.0, 0.0, 0.5]
+        pose1 = [0.2, -0.2, 0.3, np.pi/6, np.pi/6, 0.0]
         # print(f"moving to zero_joints..........")
         # arm.move_to_joints(zero_joints, timeout=10, tolerance=0.04)
 
@@ -658,9 +776,6 @@ def main():
         arm.move_to_pose(pose1, timeout=10, tolerance=0.04)
         current_pose = arm.get_pose()
         print(f"current_pose: {current_pose}")
-
-
-
 
     except KeyboardInterrupt:
         logger.info("user interrupt")

@@ -248,7 +248,26 @@ simulation：
 
     流程：
         target_pose进来
+        获取可到达位姿
+            判断当前位姿能否到达
+                调整到可到达的位姿。
         调库开始逆解（mask， init_pose 可配）
         得到solution
         判断solution是否为none
+            调整tolerance
+
+        判断solution是否为none
         判断solution的joints是否超限
+
+if_rotation_reachable()
+if_position_reachable()  # 针对腕关节，并非tcp,（不考虑关节限制）。
+if_pose_reachable(pose)
+
+tuning_rotation_reachable(pose)
+tuning_position_reachable(pose)
+tuning_pose_reachable(pose)
+
+
+任务类型分析：
+    抓取与放置：
+    精确位姿调整：
