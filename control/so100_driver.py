@@ -271,7 +271,7 @@ def main():
             return
 
         # 示例：移动到home位
-        hardware_driver.move_to_preset_pose("fold_pose")
+        hardware_driver.move_to_preset_pose("zero_pose")
         time.sleep(2)
         # 读取关节
         joints_offseted = hardware_driver.read_joints()

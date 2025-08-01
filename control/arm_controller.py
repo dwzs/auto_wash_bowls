@@ -143,7 +143,7 @@ class Arm(Node):
         logger.error(f"wait for connection timeout({timeout}) seconds")
         return False
     
-    def _send_arm_command(self, arm_joints: List[float]) -> bool:
+    def _send_arm_joints(self, arm_joints: List[float]) -> bool:
         """发送机械臂命令"""
         if len(arm_joints) != len(self.cfg["joint_indices"]):
             logger.error(f"send arm command failed: actual joints length({len(arm_joints)}) != expected joints length({len(self.cfg['joint_indices'])})")
@@ -177,25 +177,109 @@ class Arm(Node):
 
         return False
     
+    # def _reduce_joints_diff(self, target_joints: List[float], tolerance: float = 0.01) -> List[float]:
+    #     """减少关节差值"""
+    #     for i in range(len(current_joints)):
+    #         current_joints = self.get_joints()
+    #         joint_diff = current_joints[i] - target_joints[i]
+    #         if abs(joint_diff) > tolerance:
+    #             self._send_arm_joints(target_joints)
+    #             logger.info(f"reduce joint diff: {current_joints[i]} -> {target_joints[i]}")
+    #         else:
+    #             logger.info(f"joint{i} diff is small enough: {current_joints[i]} -> {target_joints[i]}")
+        
+    #     return joint_diff
+
+    # def _wait_for_joints(self, target_joints: List[float], timeout: float = 100, tolerance: float = 0.04) -> bool:
+    #     """等待到达目标位置"""
+    #     if timeout <= 0:
+    #         return True
+        
+    #     start_time = time.time()
+
+    #     # 等待关节到达目标位置
+    #     while time.time() - start_time < timeout:
+    #         current = self.get_joints()
+    #         if current and len(current) == len(target_joints):
+    #             if all(abs(c - t) < tolerance for c, t in zip(current, target_joints)):
+    #                 return True
+    #         time.sleep(0.01)
+        
+    #     # 超时，打印当前关节和目标关节
+    #     current = self.get_joints()
+    #     joint_diff = [current[i] - target_joints[i] for i in range(len(target_joints))]
+    #     logger.error(f"timeout({timeout}), current_joints({current}), target_joints({target_joints}), joint_diff({joint_diff})")
+    #     return False
     def _wait_for_joints(self, target_joints: List[float], timeout: float = 100, tolerance: float = 0.04) -> bool:
         """等待到达目标位置"""
         if timeout <= 0:
             return True
         
         start_time = time.time()
+        # 上一次误差记录：每个关节保存上一次的误差值
+        last_errors = [float('inf')] * len(target_joints)
+        adjusted_targets = target_joints.copy()
+
+
+        current = self.get_joints()
+        last_errors = [abs(current[i] - target_joints[i]) for i in range(len(current))]
+        error_direction = 1
 
         # 等待关节到达目标位置
         while time.time() - start_time < timeout:
             current = self.get_joints()
-            if current and len(current) == len(target_joints):
-                if all(abs(c - t) < tolerance for c, t in zip(current, target_joints)):
-                    return True
-            time.sleep(0.01)
+
+            # 计算当前误差
+            current_errors = [target_joints[i] - current[i] for i in range(len(current))]
+            diff_errors = [current_errors[i] - last_errors[i] for i in range(len(current_errors))]
+            print(f"last_errors   : {last_errors}")
+            print(f"\ncurrent_errors: {current_errors}")
+            print(f"diff_errors   : {diff_errors}") 
+            # 检查是否已到达容差范围
+            if all(abs(err) < tolerance for err in current_errors):
+                print(f"all(err < tolerance for err in current_errors)")
+                print(f"current_errors: {current_errors}")
+                return True
+            
+            # 检查误差是否没有减小，如果没有减小则调整目标
+            for i in range(len(current_errors)):
+                if abs(current_errors[i]) > tolerance:
+                    # print(f"current_errors[i]: {current_errors[i]}")
+                    if abs(current_errors[i]) >= abs(last_errors[i]):
+                        print("joint i: ", i, " stop moving !")
+                        # 误差没有减小，调整目标值
+                        error_direction = 1 if current_errors[i] > 0 else -1
+                        # adjustment = tolerance * 0.5 * error_direction
+                        adjustment = tolerance * error_direction
+                        print(f"adjustment: {adjustment}")
+                        adjusted_targets[i] += adjustment
+
+            # 更新上一次误差
+            last_errors = current_errors.copy()
+
+            key = 10
+            for i in range(len(adjusted_targets)):
+                if abs(adjusted_targets[i] - target_joints[i]) > tolerance * key:
+                    print(f"joint{i} > tolerance * {key}")
+                    adjusted_targets[i] = target_joints[i] + tolerance * key * error_direction
+
+            # 发送新的目标位置
+            print(f"original_targets: {target_joints}")
+            print(f"adjusted_targets: {adjusted_targets}")
+            if not self._out_joint_limits(adjusted_targets):
+                self._send_arm_joints(adjusted_targets)
+
+            time.sleep(0.1)
+            # input("press enter to continue..........")
         
         # 超时，打印当前关节和目标关节
         current = self.get_joints()
-        joint_diff = [current[i] - target_joints[i] for i in range(len(target_joints))]
-        logger.error(f"timeout({timeout}), current_joints({current}), target_joints({target_joints}), joint_diff({joint_diff})")
+        if current:
+            joint_diff = [current[i] - target_joints[i] for i in range(len(target_joints))]
+            for i, diff in enumerate(joint_diff):
+                if abs(diff) > tolerance:
+                    logger.error(f"timeout({timeout}), current_joints({current}), target_joints({target_joints})")
+        
         return False
     
     def _create_pose_matrix(self, pose_components):
@@ -369,7 +453,7 @@ class Arm(Node):
             logger.error("joints out of limits !")
             return False
 
-        if not self._send_arm_command(joints):
+        if not self._send_arm_joints(joints):
             logger.error("send_arm_command failed !")
             return False
         
@@ -380,7 +464,7 @@ class Arm(Node):
         return True
     
 
-    def move_to_pose(self, target_pose_list, timeout: float = 100, tolerance: float = 0.04, tcp: bool = True) -> bool:
+    def move_to_pose(self, target_pose_list, timeout: float = 100, tolerance: float = 0.004, tcp: bool = True) -> bool:
         """移动到目标位姿
         
         Args:
@@ -428,7 +512,7 @@ class Arm(Node):
 
         return True
 
-    def move_line(self, start_position, end_position, step=0.01, timeout=100, tcp: bool = True) -> bool:
+    def move_line(self, start_position, end_position, step=0.01, timeout=100, tolerance=0.05, tcp: bool = True) -> bool:
         """沿直线运动 - 先计算所有轨迹点，再依次运动"""
         start_position = np.array(start_position)
         end_position = np.array(end_position)
@@ -450,10 +534,11 @@ class Arm(Node):
             trajectory_points.append(point.tolist())
         
         logger.info(f"distance({distance:.3f}) m, steps({steps}), trajectory_points({len(trajectory_points)})")
+        print(f"trajectory_points: {trajectory_points}")
         
         # 依次运动到每个轨迹点
         for i, point in enumerate(trajectory_points):
-            success = self.move_to_pose(point, timeout=timeout, tcp=tcp)
+            success = self.move_to_pose(point, timeout=timeout, tolerance=tolerance, tcp=tcp)
             if not success:
                 logger.error(f"move_to_pose failed at point({i+1}) !")
                 return False
@@ -629,15 +714,27 @@ def main():
         #         print(f"joints: ", joints)
         #     time.sleep(0.01)  # 每秒打印一次
 
+        joints0 = [0.0, 0.0, 0.0, 0.0, 0.0]
+        joints1 = [1.0, 0.0, 0.0, 0.0, 0.0]
+        arm.move_to_joints(joints0, timeout=10, tolerance=0.004)
+        current_joints = arm.get_joints()
+        print(f"current_joints: {current_joints}")
+        input("press enter to continue..........")
+
+        arm.move_to_joints(joints1, timeout=20, tolerance=0.004)
+        current_joints = arm.get_joints()
+        print(f"current_joints: {current_joints}")
+
+
         # #2. 测试高频控制某一关节
-        # joint_max = 1
-        # joint_min = -1
-        # step = 0.001
+        # joint_max = 0.2
+        # joint_min = -0.2
+        # step = 0.004
         # going_up = True
         # joint = joint_min
         # while True:
         #     # 只传递5个关节值，不是6个
-        #     arm.move_to_joints([joint, 0.0, 0.0, 0.0, 0.0], timeout=0)
+        #     arm.move_to_joints([0, 0.0, joint, 0.0, 0.0], timeout=0)
         #     print(f"关节位置: {joint:.3f} {'↑' if going_up else '↓'}")
             
         #     if going_up:
@@ -649,6 +746,9 @@ def main():
         #         if joint <= joint_min:
         #             going_up = True
         #     time.sleep(0.01)
+        #     current_joints = arm.get_joints()
+        #     print(f"current_joints: {current_joints}")
+        #     input("press enter to continue..........")
 
         # # 3. 测试笛卡尔运动
         # position = [-0.1, -0.2, 0.1]
@@ -659,10 +759,10 @@ def main():
 
         # # 4. 矩形运动
         # time_to_sleep = 0
-        # pose1 = [-0.1, -0.2, 0.05, 0, 0, 0]
-        # pose2 = [0.1, -0.2, 0.05, 0, 0, 0]
+        # pose1 = [-0.1, -0.2, 0.3, 0, 0, 0]
+        # pose2 = [0.1, -0.2, 0.3, 0, 0, 0]
         # pose3 = [0.1, -0.2, 0.15, 0, 0, 0]
-        # pose4 = [-0.1, -0.2, 0.11, 0, 0, 0]
+        # pose4 = [-0.1, -0.2, 0.15, 0, 0, 0]
 
         # print(f"\nmoving to pose1..........")
         # arm.move_to_pose(pose1, timeout=100)
@@ -717,17 +817,17 @@ def main():
         # input("press enter to continue..........")
 
         # # 直线运动
-        # pose1 = [-0.1, -0.2, 0.05, 0, 0, 0, 1]
-        # pose2 = [0.1, -0.2, 0.05, 0, 0, 0, 1]
-        # pose3 = [0.1, -0.2, 0.11, 0, 0, 0, 1]
-        # pose4 = [-0.1, -0.2, 0.11, 0, 0, 0, 1]
-        # arm.move_line(pose1, pose2)
+        # pose1 = [-0.2, -0.3, 0.1, 0, 0, 0]
+        # pose2 = [0.2, -0.3, 0.1, 0, 0, 0]
+        # pose3 = [0.1, -0.3, 0.2, 0, 0, 0]
+        # pose4 = [-0.1, -0.3, 0.2, 0, 0, 0]
+        # arm.move_line(pose1, pose2, timeout=20, tolerance=0.004)
         # input("press enter to continue..........")
-        # arm.move_line(pose2, pose3)
+        # arm.move_line(pose2, pose3, timeout=20, tolerance=0.004)
         # input("press enter to continue..........")
-        # arm.move_line(pose3, pose4)
+        # arm.move_line(pose3, pose4, timeout=20, tolerance=0.004)
         # input("press enter to continue..........")
-        # arm.move_line(pose4, pose1)
+        # arm.move_line(pose4, pose1, timeout=20, tolerance=0.004)
 
         # # 测试关节控制精度
         # # target_joints = [0.0,0.0,0.0,0.0,0.0]
@@ -767,15 +867,26 @@ def main():
         #     print(current_joints)
         #     time.sleep(0.1)
 
-        zero_joints = [0.0, 0.0, 0.0, 0.0, 0.0]
-        pose1 = [0.2, -0.2, 0.3, np.pi/6, np.pi/6, 0.0]
+        # zero_joints = [0.0, 0.0, 0.0, 0.0, 0.0]
+        # pose1 = [0.2, -0.2, 0.3, 0, 0, 0.0]
         # print(f"moving to zero_joints..........")
         # arm.move_to_joints(zero_joints, timeout=10, tolerance=0.04)
 
         # input(f"press enter moving to pose1:{pose1}")
-        arm.move_to_pose(pose1, timeout=10, tolerance=0.04)
-        current_pose = arm.get_pose()
-        print(f"current_pose: {current_pose}")
+        # arm.move_to_pose(pose1, timeout=10, tolerance=0.04)
+        # current_pose = arm.get_pose()
+        # print(f"current_pose: {current_pose}")
+
+        # pose = [-0.2, -0.3, 0.1, 0, 0, 0]
+        # for i in range(40):
+        #     pose[0] = pose[0] + 0.01
+        #     print(f"move to pose: {pose}")
+        #     arm.move_to_pose(pose, timeout=10, tolerance=0.04)
+        #     time.sleep(0.1)
+        #     current_pose = arm.get_pose()
+        #     print(f"current_pose: {current_pose}")
+
+
 
     except KeyboardInterrupt:
         logger.info("user interrupt")
