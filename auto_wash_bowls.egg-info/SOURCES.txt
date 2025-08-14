@@ -1,0 +1,17 @@
+pyproject.toml
+auto_wash_bowls.egg-info/PKG-INFO
+auto_wash_bowls.egg-info/SOURCES.txt
+auto_wash_bowls.egg-info/dependency_links.txt
+auto_wash_bowls.egg-info/requires.txt
+auto_wash_bowls.egg-info/top_level.txt
+control/arm_controller.py
+control/gripper_controller.py
+control/so100_controller.py
+control/so100_driver.py
+control/so100_driver_node.py
+control/test.py
+sense/color_extracter.py
+sense/ellipses_extracter.py
+sense/ellipses_extracter_node.py
+sense/extract_ellipse_video.py
+simulation/so100_sim_ros_launch.py

@@ -10,7 +10,8 @@
 
 ## 启动步骤
 1. 启动so100驱动层(关节控制，关节限制)
-    python so100_driver.py
+    sudo chmod 666 /dev/ttyACM0
+    python -m control.so100_driver_node
 2. 启动rviz可视化以及gui关节控制
     ros2 launch so100_robot_description display_true_robot.launch.py
 3. 启动so100 控制层(正逆解，机械臂控制，夹爪控制)

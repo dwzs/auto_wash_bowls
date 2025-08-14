@@ -1,5 +1,10 @@
 {
     "camera_id": 0,
+    "flip_left_right": true,
+    "camera_resolution": {
+        "width": 640,
+        "height": 480
+    },
     "ellipse_extracter": {
       "min_points": 200,
       "ellipse_params": {
@@ -12,5 +17,5 @@
     "ellipse_topic": "/sense/ellipses",
     "ellipse_image_topic": "/sense/ellipses/image",
     "timer_period": 0.1,
-    "publish_image": false
-  }
+    "publish_image": true
+}

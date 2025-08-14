@@ -1,0 +1,18 @@
+[project]
+name = "auto_wash_bowls"
+version = "1.0.0"
+description = "wsy"
+requires-python = ">=3.8"
+
+dependencies = [
+    "opencv-python>=4.5.0",
+    "numpy>=1.20.0,<2.0.0",
+    "pyserial>=3.4",
+]
+
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["control", "sense", "simulation"]

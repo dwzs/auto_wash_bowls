@@ -271,11 +271,18 @@ def main():
             return
 
         # 示例：移动到home位
-        hardware_driver.move_to_preset_pose("zero_pose")
-        time.sleep(2)
+        # hardware_driver.move_to_preset_pose("zero_pose")
+        # time.sleep(2)
         # 读取关节
-        joints_offseted = hardware_driver.read_joints()
-        print(f'当前关节角度(弧度): {joints_offseted}')
+        # joints_offseted = hardware_driver.read_joints()
+        # print(f'当前关节角度(弧度): {joints_offseted}')
+
+        joints0 = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        joints1 = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        hardware_driver.write_joints(joints0)
+        input("press enter to continue..........")
+        hardware_driver.write_joints(joints1)
+        input("press enter to continue..........")
 
     except KeyboardInterrupt:
         print('INFO: 用户中断')

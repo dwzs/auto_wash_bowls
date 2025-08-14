@@ -223,33 +223,37 @@ def main():
     try:
         gripper = GripperController()
         
-        # # 现在回调会在后台自动更新
+        gripper.open()
+
+        # # 读取夹爪位置
         # while True:
         #     joints = gripper.get_joint()
         #     if joints is not None:
         #         print(f"当前位置: {joints:.3f}")
         #     time.sleep(0.01)  # 可以设置更长的间隔
 
-        joint_max = 1.2
-        joint_min = -0.15
-        step = 0.001
-        going_up = True
-        joint = joint_min
 
-        while True:
-            gripper.set_joint(joint, timeout=0)
-            print(f"关节位置: {joint + step * (1 if going_up else -1):.3f} {'↑' if going_up else '↓'}")
+        # 夹爪来回摆动
+        # joint_max = 1.2
+        # joint_min = -0.15
+        # step = 0.001
+        # going_up = True
+        # joint = joint_min
+
+        # while True:
+        #     gripper.set_joint(joint, timeout=0)
+        #     print(f"关节位置: {joint + step * (1 if going_up else -1):.3f} {'↑' if going_up else '↓'}")
             
-            if going_up:
-                joint += step
-                if joint >= joint_max:
-                    going_up = False
-            else:
-                joint -= step
-                if joint <= joint_min:
-                    going_up = True
+        #     if going_up:
+        #         joint += step
+        #         if joint >= joint_max:
+        #             going_up = False
+        #     else:
+        #         joint -= step
+        #         if joint <= joint_min:
+        #             going_up = True
             
-            time.sleep(0.01)
+        #     time.sleep(0.01)
 
     except KeyboardInterrupt:
         print("用户中断")
