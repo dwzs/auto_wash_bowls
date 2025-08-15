@@ -304,7 +304,7 @@ if __name__ == "__main__":
         actual_height = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
         print(f"摄像头ID: {extractor.camera_id}")
         print(f"摄像头分辨率: {int(actual_width)}x{int(actual_height)}")
-        print(f"左右翻转: {'启用' if extractor.flip_left_right else '禁用'}")
+        # print(f"左右翻转: {'启用' if extractor.flip_left_right else '禁用'}")
         
         print("按  q  退出")
         while True:
