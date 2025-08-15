@@ -1,20 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""SO-100机械臂控制器 - 最简配置版本"""
+"""SO-100机械臂控制器 - 直接硬件控制版本"""
 
 import math
-import rclpy
-from rclpy.node import Node
-from sensor_msgs.msg import JointState
 import json
 import time
 import os
 import numpy as np
 from typing import List, Optional
-import threading
 from scipy.spatial.transform import Rotation
 from roboticstoolbox import ERobot
 from loguru import logger
+from .so100_driver import So100Driver
 
 TARGET_JOINTS = []
 
@@ -30,32 +27,24 @@ def format_to_2dp(value):
     else:
         return value
 
-class Arm(Node):
+class Arm:
     """机械臂控制类"""
     
     def __init__(self, config_file=None):
-        super().__init__('arm_controller')
-        
         # 直接加载配置文件
         config_path = config_file or os.path.join(os.path.dirname(__file__), "config", "arm_config.json")
         with open(config_path, 'r', encoding='utf-8') as f:
             self.cfg = json.load(f)
         logger.info(f"成功加载配置文件: {config_path}")
 
-        # 创建发布器和订阅器
-        self.joint_cmd_pub = self.create_publisher(JointState, self.cfg["ros"]["cmd_topic"], 10)
-        self.joint_state_sub = self.create_subscription(
-            JointState, self.cfg["ros"]["state_topic"], self._joint_state_callback, 10)
+        # 初始化硬件驱动
+        self.so100_driver = So100Driver()
+        if not hasattr(self.so100_driver, 'initialized') or not self.so100_driver.initialized:
+            logger.error("硬件驱动初始化失败")
+            raise RuntimeError("Failed to initialize hardware driver")
         
         # 状态变量
-        self.current_all_joints = None
         self.current_arm_joints = None
-        self.lock = threading.Lock()
-        self._shutdown = False
-        
-        # 启动后台线程处理ROS消息
-        self.spin_thread = threading.Thread(target=self._spin_thread, daemon=True)
-        self.spin_thread.start()
         
         # 加载标定数据
         with open(self.cfg["calibration_file"], 'r', encoding='utf-8') as f:
@@ -75,21 +64,7 @@ class Arm(Node):
         # 加载机器人模型
         self._load_robot_model()
         
-        # 等待连接
-        if not self._wait_for_connection():
-            logger.error("Arm __init__ failed: _wait_for_connection failed")
-            raise RuntimeError("Failed to wait for connection")
-
         logger.info("Arm __init__ success")
-    
-    def _spin_thread(self):
-        """后台线程处理ROS消息"""
-        while rclpy.ok() and not self._shutdown:
-            try:
-                rclpy.spin_once(self, timeout_sec=0.01)
-            except Exception as e:
-                logger.error(f"Spin thread error: {e}")
-                break
     
     def _load_robot_model(self):
         """加载机器人URDF模型"""
@@ -113,56 +88,27 @@ class Arm(Node):
             logger.error(f"load_robot_model failed: {e}")
             return False
     
-    def _joint_state_callback(self, msg):
-        """关节状态回调"""
-        if self._shutdown:  # 添加shutdown检查
-            return
-        
-        with self.lock:
-            self.current_all_joints = list(msg.position)
-            if len(self.current_all_joints) >= len(self.cfg["joint_indices"]):
-                self.current_arm_joints = [self.current_all_joints[i] for i in self.cfg["joint_indices"]]
-            
-            if self.current_arm_joints is None:
-                logger.error("current_arm_joints is None")
-
-    def _wait_for_connection(self, timeout=10.0):
-        """等待关节状态数据"""
-        start_time = time.time()
-        logger.info("等待关节状态数据...")
-        
-        while time.time() - start_time < timeout:
-            wait_time = time.time() - start_time
-            if self.current_arm_joints is None:
-                logger.info(f"waiting {wait_time} seconds for joint state data...")
-            else:
-                logger.info(f"wait for connection success: current_arm_joints is {self.current_arm_joints}")
-                return True
-            time.sleep(0.1)
-        
-        logger.error(f"wait for connection timeout({timeout}) seconds")
-        return False
-    
-    def _send_arm_joints(self, arm_joints: List[float]) -> bool:
+    def _arm_write_joints(self, arm_joints: List[float]) -> bool:
         """发送机械臂命令"""
-        if len(arm_joints) != len(self.cfg["joint_indices"]):
-            logger.error(f"send arm command failed: actual joints length({len(arm_joints)}) != expected joints length({len(self.cfg['joint_indices'])})")
+        if len(arm_joints) != 5:
+            logger.error(f"send arm command failed: actual joints length({len(arm_joints)}) != expected joints length(5)")
             return False
         
         # 确保所有值都是float类型
         arm_joints_float = [float(j) for j in arm_joints]
+        so100_target_joints = arm_joints_float + [None]
 
         try:
-            msg = JointState()
-            msg.header.stamp = self.get_clock().now().to_msg()
-            msg.position = arm_joints_float + [math.nan]  # 夹爪位置用NaN跳过
-            self.joint_cmd_pub.publish(msg)
+            # 直接调用硬件驱动
+            success = self.so100_driver.write_joints(so100_target_joints)
+            if not success:
+                logger.error("hardware write_joints failed")
+                return False
             return True
         except Exception as e:
             logger.error(f"send arm command failed: {e}")
             return False
 
-    
     def _out_joint_limits(self, joints: List[float]) -> bool:
         """检查关节是否超出限制"""
         joints_limit = self.joints_limits
@@ -177,39 +123,6 @@ class Arm(Node):
 
         return False
     
-    # def _reduce_joints_diff(self, target_joints: List[float], tolerance: float = 0.01) -> List[float]:
-    #     """减少关节差值"""
-    #     for i in range(len(current_joints)):
-    #         current_joints = self.get_joints()
-    #         joint_diff = current_joints[i] - target_joints[i]
-    #         if abs(joint_diff) > tolerance:
-    #             self._send_arm_joints(target_joints)
-    #             logger.info(f"reduce joint diff: {current_joints[i]} -> {target_joints[i]}")
-    #         else:
-    #             logger.info(f"joint{i} diff is small enough: {current_joints[i]} -> {target_joints[i]}")
-        
-    #     return joint_diff
-
-    # def _wait_for_joints(self, target_joints: List[float], timeout: float = 100, tolerance: float = 0.04) -> bool:
-    #     """等待到达目标位置"""
-    #     if timeout <= 0:
-    #         return True
-        
-    #     start_time = time.time()
-
-    #     # 等待关节到达目标位置
-    #     while time.time() - start_time < timeout:
-    #         current = self.get_joints()
-    #         if current and len(current) == len(target_joints):
-    #             if all(abs(c - t) < tolerance for c, t in zip(current, target_joints)):
-    #                 return True
-    #         time.sleep(0.01)
-        
-    #     # 超时，打印当前关节和目标关节
-    #     current = self.get_joints()
-    #     joint_diff = [current[i] - target_joints[i] for i in range(len(target_joints))]
-    #     logger.error(f"timeout({timeout}), current_joints({current}), target_joints({target_joints}), joint_diff({joint_diff})")
-    #     return False
     def _wait_for_joints(self, target_joints: List[float], timeout: float = 100, tolerance: float = 0.04) -> bool:
         """等待到达目标位置"""
         if timeout <= 0:
@@ -220,14 +133,20 @@ class Arm(Node):
         last_errors = [float('inf')] * len(target_joints)
         adjusted_targets = target_joints.copy()
 
-
         current = self.get_joints()
+        if current is None:
+            logger.error("get_joints failed in _wait_for_joints")
+            return False
+            
         last_errors = [abs(current[i] - target_joints[i]) for i in range(len(current))]
         error_direction = 1
 
         # 等待关节到达目标位置
         while time.time() - start_time < timeout:
             current = self.get_joints()
+            if current is None:
+                logger.error("get_joints failed during waiting")
+                return False
 
             # 计算当前误差
             current_errors = [target_joints[i] - current[i] for i in range(len(current))]
@@ -235,6 +154,7 @@ class Arm(Node):
             print(f"last_errors   : {last_errors}")
             print(f"\ncurrent_errors: {current_errors}")
             print(f"diff_errors   : {diff_errors}") 
+            
             # 检查是否已到达容差范围
             if all(abs(err) < tolerance for err in current_errors):
                 print(f"all(err < tolerance for err in current_errors)")
@@ -244,12 +164,10 @@ class Arm(Node):
             # 检查误差是否没有减小，如果没有减小则调整目标
             for i in range(len(current_errors)):
                 if abs(current_errors[i]) > tolerance:
-                    # print(f"current_errors[i]: {current_errors[i]}")
                     if abs(current_errors[i]) >= abs(last_errors[i]):
                         print("joint i: ", i, " stop moving !")
                         # 误差没有减小，调整目标值
                         error_direction = 1 if current_errors[i] > 0 else -1
-                        # adjustment = tolerance * 0.5 * error_direction
                         adjustment = tolerance * error_direction
                         print(f"adjustment: {adjustment}")
                         adjusted_targets[i] += adjustment
@@ -267,10 +185,9 @@ class Arm(Node):
             print(f"original_targets: {target_joints}")
             print(f"adjusted_targets: {adjusted_targets}")
             if not self._out_joint_limits(adjusted_targets):
-                self._send_arm_joints(adjusted_targets)
+                self._arm_write_joints(adjusted_targets)
 
             time.sleep(0.1)
-            # input("press enter to continue..........")
         
         # 超时，打印当前关节和目标关节
         current = self.get_joints()
@@ -359,7 +276,6 @@ class Arm(Node):
         except Exception as e:
             logger.error(f"逆解计算失败: {e}")
             return None
-    
 
     def cacul_ik_joints_within_limits_from_pose(self, target_pose_list, use_tool=True):
         # 1. 使用当前关节角度逆解
@@ -396,12 +312,16 @@ class Arm(Node):
     
     def get_joints(self) -> Optional[List[float]]:
         """获取机械臂关节角度"""
-        with self.lock:
-            if self.current_arm_joints is not None:
-                return self.current_arm_joints.copy()
+        try:
+            joints = self.so100_driver.read_joints()
+            if joints and len(joints) >= 5:
+                return joints[:5]  # 只返回前5个关节
             else:
-                logger.error("get_joints failed !")
+                logger.error("get_joints failed: invalid joints data")
                 return None
+        except Exception as e:
+            logger.error(f"get_joints failed: {e}")
+            return None
     
     def get_pose(self, tcp: bool = True) -> Optional[List[float]]:
         """获取位姿
@@ -427,7 +347,6 @@ class Arm(Node):
         
         return list(position) + list(euler_angles)
 
-    
     # ==================== 运动控制接口 ====================
     
     def move_to_joints(self, joints: List[float], timeout: float = 100, tolerance: float = 0.04) -> bool:
@@ -445,8 +364,8 @@ class Arm(Node):
         global TARGET_JOINTS
         TARGET_JOINTS = joints
 
-        if len(joints) != len(self.cfg["joint_indices"]):
-            logger.error(f"actual joints length({len(joints)}) != expected joints length({len(self.cfg['joint_indices'])}) !")
+        if len(joints) != 5:
+            logger.error(f"actual joints length({len(joints)}) != expected joints length(5) !")
             return False
         
         # 检查关节范围
@@ -454,7 +373,7 @@ class Arm(Node):
             logger.error("joints out of limits !")
             return False
 
-        if not self._send_arm_joints(joints):
+        if not self._arm_write_joints(joints):
             logger.error("send_arm_command failed !")
             return False
         
@@ -463,7 +382,6 @@ class Arm(Node):
             return False
 
         return True
-    
 
     def move_to_pose(self, target_pose_list, timeout: float = 100, tolerance: float = 0.004, tcp: bool = True) -> bool:
         """移动到目标位姿
@@ -575,15 +493,15 @@ class Arm(Node):
         return self.move_to_joints(self.zero_joints, timeout=timeout)
 
     def destroy_node(self):
-        """安全销毁节点"""
-        self._shutdown = True
-        if hasattr(self, 'spin_thread'):
-            self.spin_thread.join(timeout=1.0)  # 等待线程结束
-        super().destroy_node()
+        """安全销毁"""
+        if hasattr(self, 'driver'):
+            self.so100_driver.stop()
 
+    # ==================== 其他功能保持不变 ====================
+    # ... (保持所有其他方法不变)
 
     def _get_theta_from_position(self, position):
-        """根据位置获取角度，范围 [0, 2π]"""
+        """so100根据末端位置获取关节0的角度，范围 [0, 2π]"""
         x, y = position[0], position[1]
         theta = np.arctan2(y, x)
         if theta < 0:
@@ -699,17 +617,7 @@ class Arm(Node):
             return pose
 
     def move_to_direction_abs(self, vector, timeout: float = 100, tolerance: float = 0.004, tcp: bool = True) -> bool:
-        """沿绝对方向移动
-        
-        Args:
-            vector: 移动向量 [dx, dy, dz] (世界坐标系)
-            timeout: 超时时间
-            tolerance: 位置容差
-            tcp: True为TCP移动，False为flange移动
-            
-        Returns:
-            成功返回True，失败返回False
-        """
+        """沿绝对方向移动"""
         current_pose = self.get_pose(tcp=tcp)
         if current_pose is None:
             logger.error("get_pose failed!")
@@ -721,17 +629,7 @@ class Arm(Node):
         return self.move_to_pose(target_position, timeout, tolerance, tcp)
     
     def move_to_direction_relative(self, vector, timeout: float = 100, tolerance: float = 0.004, tcp: bool = True) -> bool:
-        """沿相对方向移动（相对于当前姿态）
-        
-        Args:
-            vector: 移动向量 [dx, dy, dz] (当前姿态坐标系)
-            timeout: 超时时间  
-            tolerance: 位置容差
-            tcp: True为TCP移动，False为flange移动
-            
-        Returns:
-            成功返回True，失败返回False
-        """
+        """沿相对方向移动（相对于当前姿态）"""
         current_pose = self.get_pose(tcp=tcp)
         if current_pose is None:
             logger.error("get_pose failed!")
@@ -752,7 +650,6 @@ class Arm(Node):
 
 def main():
     """简单的测试函数"""
-    rclpy.init()
     arm = None
     
     try:
@@ -766,11 +663,6 @@ def main():
         while True:
             time.sleep(1.0)
 
-        # # direction = [0.05, 0.0, 0.0]
-        # direction = [0.0, -0.1, 0.0]
-        # # direction = [0.0, 0.0, 0.0]
-        # arm.move_to_direction_abs(direction, timeout=10, tolerance=0.004, tcp=True)
-
     except KeyboardInterrupt:
         logger.info("用户中断")
     except Exception as e:
@@ -782,12 +674,7 @@ def main():
             try:
                 arm.destroy_node()
             except Exception as e:
-                logger.error(f"销毁节点错误: {e}")
-        
-        try:
-            rclpy.shutdown()
-        except Exception as e:
-            logger.error(f"关闭rclpy错误: {e}")
+                logger.error(f"销毁错误: {e}")
 
 if __name__ == '__main__':
     logger.remove()

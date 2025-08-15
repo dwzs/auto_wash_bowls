@@ -80,10 +80,11 @@ class ArmFollowObjects(Node):
         
         # 执行移动
         try:
-            success = self.arm.move_to_direction_abs(
-                move_vector, timeout=1.0, tolerance=0.01, tcp=True)
-            if not success:
-                self.get_logger().warn("机械臂移动失败")
+            # success = self.arm.move_to_direction_abs(
+            #     move_vector, timeout=1.0, tolerance=0.01, tcp=True)
+            # if not success:
+            #     self.get_logger().warn("机械臂移动失败")
+            print(f"move_vector: {move_vector}")
         except Exception as e:
             self.get_logger().error(f"移动控制错误: {e}")
 

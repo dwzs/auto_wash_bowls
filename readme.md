@@ -276,3 +276,52 @@ tuning_pose_reachable(pose)
 任务类型分析：
     抓取与放置：
     精确位姿调整：
+
+
+
+
+def _load_robot_model(self):
+def _joint_state_callback(self, msg):
+def _wait_for_connection(self, timeout=10.0):
+def _send_arm_joints(self, arm_joints: List[float]) -> bool:
+def _out_joint_limits(self, joints: List[float]) -> bool:
+def _wait_for_joints(self, target_joints: List[float], timeout: float = 100, tolerance: float = 0.04) -> bool:
+def _create_pose_matrix(self, pose_components):
+def _forward_kinematics(self, joint_angles, use_tool=True):
+def _inverse_kinematics(self, target_pose_list, ik_init_pose, mask, use_tool=True):
+def cacul_ik_joints_within_limits_from_pose(self, target_pose_list, use_tool=True):
+    mask = self.cfg["kinematics"]["default_mask"]
+def get_joints(self) -> Optional[List[float]]:
+def get_pose(self, tcp: bool = True) -> Optional[List[float]]:
+def move_to_joints(self, joints: List[float], timeout: float = 100, tolerance: float = 0.04) -> bool:
+def move_to_pose(self, target_pose_list, timeout: float = 100, tolerance: float = 0.004, tcp: bool = True) -> bool:
+def move_line(self, start_position, end_position, step=0.01, timeout=100, tolerance=0.05, tcp: bool = True) -> bool:
+def move_home(self, timeout: Optional[float] = None) -> bool:
+def move_to_up_pose(self, timeout: Optional[float] = None) -> bool:
+def move_to_joint_zero_pose(self, timeout: Optional[float] = None) -> bool:
+def destroy_node(self):
+def _get_theta_from_position(self, position):
+def _get_theta_from_rotation(self, rotation):
+def _roll_rotation(self, rotation, angle, axis=[0, 0, 1]):
+def _is_rotation_reachable(self, pose):
+def _tuning_rotation_reachable(self, pose):
+def move_to_direction_abs(self, vector, timeout: float = 100, tolerance: float = 0.004, tcp: bool = True) -> bool:
+def move_to_direction_relative(self, vector, timeout: float = 100, tolerance: float = 0.004, tcp: bool = True) -> bool:
+
+
+
+def _check_and_limit_joint(self, servo_id: int, joint_rad: float):
+def _rad_offseted_to_pulse(self, joint_rad: float, servo_id: int):
+def _rads_offseted_to_pulses(self, joints_rad: List[float]):
+def _pulse_to_rad_offseted(self, pulse: int, servo_id: int):
+def _pulses_to_rads_offseted(self, pulses: List[int]):
+def initialize_hardware(self):
+def read_joint_pulse(self, servo_id: int):
+def read_joint(self, servo_id: int):
+def read_joints_pulse(self):
+def read_joints(self):
+def write_joint(self, servo_id: int, joint_rad: float, speed: int = None, acceleration: int = None):
+def write_joints(self, joints_rad: List[float], speed: int = None, acceleration: int = None):
+def stop(self):
+def load_calibration_data(self):
+def move_to_preset_pose(self, pose_name: str):
