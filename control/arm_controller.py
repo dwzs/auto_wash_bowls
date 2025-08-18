@@ -65,6 +65,8 @@ class Arm:
         self._load_robot_model()
         
         logger.info("Arm __init__ success")
+        logger.info("================================================\n\n")
+
     
     def _load_robot_model(self):
         """加载机器人URDF模型"""
@@ -557,17 +559,20 @@ class Arm:
         """检查旋转是否可达"""
         if len(pose) < 6:
             logger.error(f"pose length({len(pose)}) < 6")
-            return True  # 默认可达
+            return False  # 默认可达
             
         position = pose[:3]
         rotation = pose[3:6]  # 只取前3个旋转分量
         
         theta_position = self._get_theta_from_position(position)
         theta_rotation = self._get_theta_from_rotation(rotation)
+        print(f"theta_position: {theta_position * 180 / np.pi}")
+        print(f"theta_rotation: {theta_rotation * 180 / np.pi}")
 
         diff = abs(theta_position - theta_rotation)
-        if diff > 0.01:
-            logger.error(f"rotation not reachable: theta_position({theta_position}), theta_rotation({theta_rotation}), diff({diff})")
+        print(f"diff: {diff * 180 / np.pi}")
+        if diff > 0.0001:
+            logger.warning(f"rotation not reachable: theta_position({theta_position * 180 / np.pi}), theta_rotation({theta_rotation * 180 / np.pi}), diff({diff * 180 / np.pi})")
             return False
         
         return True
@@ -581,7 +586,6 @@ class Arm:
         Returns:
             调整后的位姿或原位姿
         """
-        print(f"start _tuning_rotation_reachable")
         if len(pose) != 6:
             logger.warning(f"pose length({len(pose)}) != 6, skip rotation tuning")
             return pose
@@ -662,9 +666,11 @@ def main():
     
     try:
         arm = Arm()
-        # print(f"机械臂初始化成功")
-        # print(f"当前关节: {arm.get_joints()}")
-        # print(f"当前TCP位姿: {arm.get_pose()}")
+        print(f"机械臂初始化成功")
+        current_joints = arm.get_joints()
+        current_pose = arm.get_pose()
+        print(f"当前关节: {current_joints}")
+        print(f"当前TCP位姿: {current_pose}")
         
         # # 保持运行状态
         # print("机械臂就绪，按 Ctrl+C 退出")
@@ -681,13 +687,20 @@ def main():
 # new_pose: [-0.1, -0.3, 0.2, 1.7640112210628953, 0.0823173622838631, 2.422001119463583]
 
 
-        pose = [-0.1, -0.3, 0.2, 1.7640112210628955, 0.08231736228386288, 0.10782470670965782]
+        # pose = [-0.1, -0.3, 0.2, 1.7640112210628955, 0.08231736228386288, 0.10782470670965782]
+        # pose = [-0.1, -0.3, 0.2, 1.7640112210628953, 0.0823173622838631, 2.422001119463583]
+        print("\n1.........................")
+        pose = current_pose
         flag = arm._is_rotation_reachable(pose)
-        print(f"flag: {flag}")
+        ik_result = arm.cacul_ik_joints_within_limits_from_pose(pose)
+        print(f"ik_result: {ik_result}")
+
+        print("\n2.........................")
         pose2 = arm._tuning_rotation_reachable(pose)
         flag2 = arm._is_rotation_reachable(pose2)
-        print(f"flag2: {flag2}")
-        print(f"pose2: {pose2}")
+        ik_result2 = arm.cacul_ik_joints_within_limits_from_pose(pose2)
+        print(f"ik_result2: {ik_result2}")
+
 
     except KeyboardInterrupt:
         logger.info("用户中断")

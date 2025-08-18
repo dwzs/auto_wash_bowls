@@ -149,7 +149,36 @@ def test_get_pose(arm):
         print(f"  Flange位姿: {flange_pose}")
         time.sleep(0.2)
 
-def main():
+def test_tuning_rotation_reachable(arm):
+    """测试旋转可达性调整"""
+    print("\nwsy=== 测试旋转可达性调整 ===")
+    # pose = [0.06643699856111875, -0.16562473378074943, 0.06919128028718832, 1.7640112216671655, 0.08231736788759281, 0.10629035256903263]
+    # pose = [0.2, -0.2, 0.2, 0.5, 0.0, 0.0]
+    # pose = [0.2, -0.2, 0.2, 0.0, 0.0, 0.784]
+    # pose = [0.2, -0.001, 0.2, 0.0, 0.0, 1.0]
+    # pose = [0.2, -0.001, 0.2, 1.7, 0.08, 0.1]
+    pose = [0.2, -0.2, 0.2, 1.7, 0.1, 0.1]
+    print(f"wsy测试 pose: {pose}")
+    if not arm._is_rotation_reachable(pose):
+        print(f"wsypose 不可达")
+
+    print(f"\nwsy计算 ik 解")
+    ik_result = arm.cacul_ik_joints_within_limits_from_pose(pose)
+    print(f"wsyik_result: {ik_result}")
+
+    print(f"\nwsy尝试调整旋转到可达位置")
+    pose2 = arm._tuning_rotation_reachable(pose)
+    print(f"wsy调整后 pose: {pose2}")
+
+    print(f"\nwsy计算新pose ik 解")    
+    if not arm._is_rotation_reachable(pose2):
+        print(f"wsy调整后仍不可达")
+
+    ik_result2 = arm.cacul_ik_joints_within_limits_from_pose(pose2)
+    print(f"wsyik_result2: {ik_result2}")
+
+
+def main(): 
     """测试主函数"""
     rclpy.init()
     arm = None
@@ -173,13 +202,15 @@ def main():
             '9': ('高频控制', test_joints_high_frequency_control),
             '10': ('获取关节', test_get_joints),
             '11': ('获取位姿', test_get_pose),
+            '12': ('测试旋转可达性调整', test_tuning_rotation_reachable),
         }
         
         print("\n可用测试：")
         for key, (name, _) in tests.items():
             print(f"  {key}: {name}")
         
-        choice = input("\n请选择测试 (1-11, 回车跳过): ").strip()
+        # choice = input(f"\n请选择测试 (1-{len(tests)}, 回车跳过): ").strip()
+        choice = '12'
         
         if choice in tests:
             test_name, test_func = tests[choice]
