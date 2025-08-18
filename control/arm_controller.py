@@ -200,15 +200,19 @@ class Arm:
         return False
     
     def _create_pose_matrix(self, pose_components):
-        """将位姿列表转换为4x4齐次变换矩阵"""
-        if len(pose_components) != 7:
-            logger.error(f"pose_components length({len(pose_components)}) != 7")
+        """将位姿列表转换为4x4齐次变换矩阵
+        
+        Args:
+            pose_components: [x, y, z, roll, pitch, yaw] 欧拉角格式
+        """
+        if len(pose_components) != 6:
+            logger.error(f"pose_components length({len(pose_components)}) != 6")
             return None
 
         position = pose_components[:3]
-        quaternion = pose_components[3:]  # [qx, qy, qz, qw]
+        euler_angles = pose_components[3:]  # [roll, pitch, yaw]
         
-        rotation_matrix = Rotation.from_quat(quaternion).as_matrix()
+        rotation_matrix = Rotation.from_euler('xyz', euler_angles).as_matrix()
         
         pose_matrix = np.eye(4)
         pose_matrix[:3, :3] = rotation_matrix
@@ -216,7 +220,11 @@ class Arm:
         return pose_matrix
     
     def _forward_kinematics(self, joint_angles, use_tool=True):
-        """计算正运动学"""
+        """计算正运动学
+        
+        Returns:
+            位姿列表 [x, y, z, roll, pitch, yaw] 欧拉角格式
+        """
         if self.robot_model is None:
             logger.error("机器人模型未加载")
             return None
@@ -227,9 +235,10 @@ class Arm:
             fk_pose_matrix = self.robot_model.fkine(np.array(joint_angles), end=end_link)
             
             position = fk_pose_matrix.t
-            quaternion_xyzw = Rotation.from_matrix(fk_pose_matrix.R).as_quat()
+            rotation_matrix = fk_pose_matrix.R
+            euler_angles = Rotation.from_matrix(rotation_matrix).as_euler('xyz')
             
-            pose_list = list(position) + list(quaternion_xyzw)
+            pose_list = list(position) + list(euler_angles)
             return pose_list
             
         except Exception as e:
@@ -237,7 +246,11 @@ class Arm:
             return None
     
     def _inverse_kinematics(self, target_pose_list, ik_init_pose, mask, use_tool=True):
-        """计算逆运动学"""
+        """计算逆运动学
+        
+        Args:
+            target_pose_list: [x, y, z, roll, pitch, yaw] 欧拉角格式
+        """
         if self.robot_model is None:
             logger.error("机器人模型未加载")
             return None
@@ -246,6 +259,9 @@ class Arm:
         
         try:
             target_pose_matrix = self._create_pose_matrix(target_pose_list)
+            if target_pose_matrix is None:
+                logger.error(f"create pose_matrix from target_pose_list failed !")
+                return None
             
             q_guess = np.array(ik_init_pose)
             
@@ -278,6 +294,11 @@ class Arm:
             return None
 
     def cacul_ik_joints_within_limits_from_pose(self, target_pose_list, use_tool=True):
+        """计算逆运动学关节解
+        
+        Args:
+            target_pose_list: [x, y, z, roll, pitch, yaw] 欧拉角格式
+        """
         # 1. 使用当前关节角度逆解
         current_joints = self.get_joints()
         if current_joints is None:
@@ -339,13 +360,7 @@ class Arm:
             logger.error("forward_kinematics failed !")
             return None
         
-        # 转换四元数为欧拉角
-        position = pose[:3]
-        quaternion = pose[3:]
-        rotation = Rotation.from_quat(quaternion)
-        euler_angles = rotation.as_euler('xyz')  # [roll, pitch, yaw]
-        
-        return list(position) + list(euler_angles)
+        return pose
 
     # ==================== 运动控制接口 ====================
     
@@ -406,7 +421,6 @@ class Arm:
             target_rotation_euler = list(current_pose[3:])
 
         elif len(target_pose_list) == 6:
-            # 将欧拉角转换为四元数
             target_position = target_pose_list[:3]
             target_rotation_euler = target_pose_list[3:]  # [roll, pitch, yaw]
             
@@ -414,14 +428,11 @@ class Arm:
             logger.error(f"target pose length({len(target_pose_list)}) != 3 or 6 !")
             return False
         
-        # 转换为四元数
-        target_rotation = Rotation.from_euler('xyz', target_rotation_euler)
-        target_rotation_quaternion = target_rotation.as_quat()  # [qx, qy, qz, qw]
-        
-        target_pose_quat = list(target_position) + list(target_rotation_quaternion)
-        target_pose_quat_reachable = self._tuning_rotation_reachable(target_pose_quat)
+        # 组合完整的6元素位姿
+        target_pose_euler = list(target_position) + list(target_rotation_euler)
+        target_pose_euler_reachable = self._tuning_rotation_reachable(target_pose_euler)
 
-        ik_joints = self.cacul_ik_joints_within_limits_from_pose(target_pose_quat_reachable, use_tool=tcp)
+        ik_joints = self.cacul_ik_joints_within_limits_from_pose(target_pose_euler_reachable, use_tool=tcp)
         if ik_joints is None:
             logger.error(f"cacul_ik_joints_within_limits_from_pose failed !")
             return False
@@ -494,14 +505,11 @@ class Arm:
 
     def destroy_node(self):
         """安全销毁"""
-        if hasattr(self, 'driver'):
+        if hasattr(self, 'so100_driver'):
             self.so100_driver.stop()
 
-    # ==================== 其他功能保持不变 ====================
-    # ... (保持所有其他方法不变)
-
     def _get_theta_from_position(self, position):
-        """so100根据末端位置获取关节0的角度，范围 [0, 2π]"""
+        """根据位置获取角度，范围 [0, 2π]"""
         x, y = position[0], position[1]
         theta = np.arctan2(y, x)
         if theta < 0:
@@ -556,57 +564,57 @@ class Arm:
         
         theta_position = self._get_theta_from_position(position)
         theta_rotation = self._get_theta_from_rotation(rotation)
+
+        diff = abs(theta_position - theta_rotation)
+        if diff > 0.01:
+            logger.error(f"rotation not reachable: theta_position({theta_position}), theta_rotation({theta_rotation}), diff({diff})")
+            return False
         
-        return abs(theta_position - theta_rotation) < 0.01  # 1度容差
+        return True
 
     def _tuning_rotation_reachable(self, pose):
         """调整位姿使旋转可达
         
         Args:
-            pose: [x, y, z, qx, qy, qz, qw] 四元数格式
+            pose: [x, y, z, roll, pitch, yaw] 欧拉角格式
         
         Returns:
             调整后的位姿或原位姿
         """
-        if len(pose) != 7:
-            logger.warning(f"pose length({len(pose)}) != 7, skip rotation tuning")
+        print(f"start _tuning_rotation_reachable")
+        if len(pose) != 6:
+            logger.warning(f"pose length({len(pose)}) != 6, skip rotation tuning")
             return pose
         
         try:
-            # 转换四元数为欧拉角
             position = pose[:3]
-            quaternion = pose[3:]
+            rotation = pose[3:6]
             
-            # 验证四元数
-            if len(quaternion) != 4:
-                logger.error(f"quaternion length({len(quaternion)}) != 4")
-                return pose
-                
-            rotation = Rotation.from_quat(quaternion).as_euler('xyz')
-            
-            # 构建6元素位姿用于检查
-            pose_6d = list(position) + list(rotation)
+            print(f"pose: {pose}")
             
             # 检查是否需要调整
-            if self._is_rotation_reachable(pose_6d):
+            if self._is_rotation_reachable(pose):
+                print("is_rotation_reachable: True")
                 return pose  # 已经可达，不需要调整
             
             # 计算调整角度
             theta_position = self._get_theta_from_position(position)
             theta_rotation = self._get_theta_from_rotation(rotation)
             theta_diff = theta_position - theta_rotation
-            
+            print(f"theta_diff: {theta_diff}")
+            print(f"theta_position: {theta_position}")
+            print(f"theta_rotation: {theta_rotation}")
+
             # 调整旋转
             new_rotation = self._roll_rotation(rotation, theta_diff)
-            
-            # 转换回四元数
-            new_quat = Rotation.from_euler('xyz', new_rotation).as_quat()
-            new_pose = list(position) + list(new_quat)
+            print(f"new_rotation: {new_rotation}")
+
+            new_pose = list(position) + new_rotation
+            print(f"new_pose: {new_pose}")
             
             # 验证调整结果
-            new_pose_6d = list(position) + new_rotation
-            if self._is_rotation_reachable(new_pose_6d):
-                logger.debug(f"Rotation tuned: {np.degrees(theta_diff):.1f}°")
+            if self._is_rotation_reachable(new_pose):
+                logger.info(f"Rotation tuned: {np.degrees(theta_diff):.1f}°")
                 return new_pose
             else:
                 logger.warning("Rotation tuning failed, using original pose")
@@ -654,14 +662,32 @@ def main():
     
     try:
         arm = Arm()
-        print(f"机械臂初始化成功")
-        print(f"当前关节: {arm.get_joints()}")
-        print(f"当前TCP位姿: {arm.get_pose()}")
+        # print(f"机械臂初始化成功")
+        # print(f"当前关节: {arm.get_joints()}")
+        # print(f"当前TCP位姿: {arm.get_pose()}")
         
-        # 保持运行状态
-        print("机械臂就绪，按 Ctrl+C 退出")
-        while True:
-            time.sleep(1.0)
+        # # 保持运行状态
+        # print("机械臂就绪，按 Ctrl+C 退出")
+        # while True:
+        #     time.sleep(1.0)
+
+
+# pose: [-0.1, -0.3, 0.2, 1.7640112210628955, 0.08231736228386288, 0.10782470670965782]
+# ERROR | _is_rotation_reachable:569 - rotation not reachable: theta_position(4.3906384259880475), theta_rotation(2.0764620132341225), diff(2.314176412753925)
+# theta_diff: 2.314176412753925
+# theta_position: 4.3906384259880475
+# theta_rotation: 2.0764620132341225
+# new_rotation: [1.7640112210628953, 0.0823173622838631, 2.422001119463583]
+# new_pose: [-0.1, -0.3, 0.2, 1.7640112210628953, 0.0823173622838631, 2.422001119463583]
+
+
+        pose = [-0.1, -0.3, 0.2, 1.7640112210628955, 0.08231736228386288, 0.10782470670965782]
+        flag = arm._is_rotation_reachable(pose)
+        print(f"flag: {flag}")
+        pose2 = arm._tuning_rotation_reachable(pose)
+        flag2 = arm._is_rotation_reachable(pose2)
+        print(f"flag2: {flag2}")
+        print(f"pose2: {pose2}")
 
     except KeyboardInterrupt:
         logger.info("用户中断")

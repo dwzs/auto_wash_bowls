@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 """机械臂跟随目标对象"""
 
+import numpy as np
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Point
@@ -30,9 +31,8 @@ class ArmFollowObjects(Node):
         self.blue_center = None
         
         # 控制参数
-        self.pixel_to_meter = 0.001  # 像素到米的转换比例 (1像素 = 1mm)
         self.dead_zone = 20  # 死区像素，避免震荡
-        self.max_move_distance = 0.05  # 最大单次移动距离(m)
+        self.move_distance = 0.02  # 固定移动距离(m)
         
         # 定时器进行跟踪控制
         self.timer = self.create_timer(0.2, self.follow_control)  # 5Hz控制频率
@@ -54,36 +54,37 @@ class ArmFollowObjects(Node):
             return
         
         # 计算像素差异 (目标 - 当前位置)
-        dx_pixel = self.blue_center[0] - self.red_center[0]
-        dy_pixel = self.blue_center[1] - self.red_center[1]
+        du_pixel = self.blue_center[0] - self.red_center[0]
+        dv_pixel = self.blue_center[1] - self.red_center[1]
         
         # 检查是否在死区内
-        if abs(dx_pixel) < self.dead_zone and abs(dy_pixel) < self.dead_zone:
+        if abs(du_pixel) < self.dead_zone and abs(dv_pixel) < self.dead_zone:
             self.get_logger().debug("目标在死区内，不移动")
             return
         
-        # 转换像素差异为机械臂移动向量
-        # 注意：图像坐标系Y轴向下，机械臂坐标系Y轴向上
-        dx_meter = dx_pixel * self.pixel_to_meter
-        dy_meter = -dy_pixel * self.pixel_to_meter  # 反向Y轴
-        dz_meter = 0.0  # 不改变Z轴
+        # 计算方向向量并归一化，然后乘以固定距离
+        # u -> -x, v -> -z (图像坐标系到机械臂坐标系的映射)
+        direction_vector = np.array([-du_pixel, 0, -dv_pixel])
         
-        # 限制最大移动距离
-        dx_meter = max(-self.max_move_distance, min(self.max_move_distance, dx_meter))
-        dy_meter = max(-self.max_move_distance, min(self.max_move_distance, dy_meter))
+        # 计算向量长度
+        vector_length = np.linalg.norm(direction_vector)
+        if vector_length == 0:
+            return
         
-        move_vector = [dx_meter, dy_meter, dz_meter]
+        # 归一化并乘以固定移动距离
+        unit_vector = direction_vector / vector_length
+        move_vector = unit_vector * self.move_distance
         
         self.get_logger().info(
             f"红色中心: {self.red_center}, 蓝色中心: {self.blue_center}, "
-            f"像素差异: ({dx_pixel}, {dy_pixel}), 移动向量: {move_vector}")
+            f"像素差异: ({du_pixel}, {dv_pixel}), 移动向量: {move_vector}")
         
         # 执行移动
         try:
-            # success = self.arm.move_to_direction_abs(
-            #     move_vector, timeout=1.0, tolerance=0.01, tcp=True)
-            # if not success:
-            #     self.get_logger().warn("机械臂移动失败")
+            success = self.arm.move_to_direction_abs(
+                move_vector, timeout=1.0, tolerance=0.01, tcp=True)
+            if not success:
+                self.get_logger().warn("机械臂移动失败")
             print(f"move_vector: {move_vector}")
         except Exception as e:
             self.get_logger().error(f"移动控制错误: {e}")
