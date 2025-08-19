@@ -1,23 +1,18 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""SO-100夹爪控制器 - 完整功能版本"""
+"""SO-100夹爪控制器 - 直接硬件控制版本"""
 
-import rclpy
-from rclpy.node import Node
-from sensor_msgs.msg import JointState
 import json
 import time
 import os
-from typing import Optional, List
-import threading
-import math
+from typing import Optional
+from loguru import logger
+from .so100_driver import So100Driver
 
-class GripperController(Node):
-    """夹爪控制器 - 完整功能，包含ROS通信和控制逻辑"""
+class GripperController:
+    """夹爪控制器 - 直接硬件控制版本"""
     
     def __init__(self):
-        super().__init__('gripper_controller')
-        
         # 加载配置
         config_path = os.path.join(os.path.dirname(__file__), "config", "gripper_config.json")
         self.config = self._load_config(config_path)
@@ -28,29 +23,13 @@ class GripperController(Node):
         self.close_position = self.config.get("close_position", -0.15)  # 关闭位置
         self.tolerance = self.config.get("tolerance", 0.05)  # 位置容差
         
-        # ROS通信配置
-        ros_config = self.config.get("ros", {})
-        self.cmd_topic = ros_config.get("cmd_topic", "/so100/cmd/joints")
-        self.state_topic = ros_config.get("state_topic", "/so100/state/joints")
+        # 初始化硬件驱动（复用机械臂的驱动）
+        self.so100_driver = So100Driver()
+        if not hasattr(self.so100_driver, 'initialized') or not self.so100_driver.initialized:
+            logger.error("硬件驱动初始化失败")
+            raise RuntimeError("Failed to initialize hardware driver")
         
-        # ROS发布器和订阅器
-        self.joint_cmd_pub = self.create_publisher(JointState, self.cmd_topic, 10)
-        self.current_joints = None
-        self.lock = threading.Lock()
-        
-        self.joint_state_sub = self.create_subscription(
-            JointState, 
-            self.state_topic, 
-            self._joint_state_callback, 
-            10
-        )
-        
-        # 启动后台线程处理ROS消息
-        self.spin_thread = threading.Thread(target=self._spin_thread, daemon=True)
-        self.spin_thread.start()
-        
-        print(f"夹爪控制器初始化完成 - 关节索引:{self.joint_index}, 开:{self.open_position}, 关:{self.close_position}")
-        self.get_logger().info("夹爪控制器就绪")
+        logger.info(f"夹爪控制器初始化完成 - 关节索引:{self.joint_index}, 开:{self.open_position}, 关:{self.close_position}")
     
     def _load_config(self, config_file: str) -> dict:
         """加载配置文件"""
@@ -58,45 +37,27 @@ class GripperController(Node):
             with open(config_file, 'r', encoding='utf-8') as f:
                 return json.load(f)
         except FileNotFoundError:
-            print(f"警告: 配置文件未找到 {config_file}, 使用默认配置")
+            logger.warning(f"配置文件未找到 {config_file}, 使用默认配置")
             return {}
         except json.JSONDecodeError as e:
-            print(f"警告: 配置文件格式错误 {e}, 使用默认配置")
+            logger.warning(f"配置文件格式错误 {e}, 使用默认配置")
             return {}
     
-    def _joint_state_callback(self, msg: JointState):
-        """关节状态回调"""
-        with self.lock:
-            # print(f"DEBUG: 收到关节状态数据: {msg.position}")
-            self.current_joints = list(msg.position)
-        # self.current_joints = list(msg.position)
-        # print(f"DEBUG: 收到关节状态数据: {msg.position}")
-
-    def _get_current_joints(self) -> Optional[List[float]]:
-        """获取当前关节状态"""
-        with self.lock:
-            return self.current_joints.copy() if self.current_joints else None
-    
-    def _send_joint_command(self, joint_positions: List[float]):
-        """发送关节命令"""
-        msg = JointState()
-        msg.header.stamp = self.get_clock().now().to_msg()
-        msg.position = joint_positions
-        self.joint_cmd_pub.publish(msg)
-    
-    def _send_gripper_command(self, position: float):
-        """发送夹爪命令 - 其他关节用NaN跳过"""
-        msg = JointState()
-        msg.header.stamp = self.get_clock().now().to_msg()
-        msg.position = [
-            math.nan,  # joint_1 - 跳过
-            math.nan,  # joint_2 - 跳过  
-            math.nan,  # joint_3 - 跳过
-            math.nan,  # joint_4 - 跳过
-            math.nan,  # joint_5 - 跳过
-            position   # joint_6 - 夹爪位置
-        ]
-        self.joint_cmd_pub.publish(msg)
+    def _send_gripper_command(self, position: float) -> bool:
+        """发送夹爪命令 - 其他关节用None跳过"""
+        try:
+            # 准备关节位置数组，只设置夹爪关节
+            joint_positions = [None] * 6  # 6个关节
+            joint_positions[self.joint_index] = position  # 设置夹爪位置
+            
+            success = self.so100_driver.write_joints(joint_positions)
+            if not success:
+                logger.error("发送夹爪命令失败")
+                return False
+            return True
+        except Exception as e:
+            logger.error(f"发送夹爪命令出错: {e}")
+            return False
     
     def _wait_for_position(self, target_pos: float, timeout: float) -> bool:
         """等待到达目标位置"""
@@ -106,15 +67,12 @@ class GripperController(Node):
         start_time = time.time()
         while time.time() - start_time < timeout:
             current_pos = self.get_joint()
-            if current_pos and abs(current_pos - target_pos) < self.tolerance:
+            if current_pos is not None and abs(current_pos - target_pos) < self.tolerance:
                 return True
             time.sleep(0.05)  # 50ms检查一次
+        
+        logger.warning(f"等待夹爪到达位置超时: 目标{target_pos:.3f}, 当前{self.get_joint()}")
         return False
-    
-    def _spin_thread(self):
-        """后台线程处理ROS消息"""
-        while rclpy.ok():
-            rclpy.spin_once(self, timeout_sec=0.01)
     
     # ==================== 对外接口 ====================
     
@@ -127,8 +85,10 @@ class GripperController(Node):
         Returns:
             成功返回True，失败或超时返回False
         """
-        self._send_gripper_command(self.open_position)
-        self.get_logger().info("打开夹爪")
+        if not self._send_gripper_command(self.open_position):
+            return False
+        
+        logger.info("打开夹爪")
         return self._wait_for_position(self.open_position, timeout)
     
     def close(self, timeout: float = 5.0) -> bool:
@@ -140,8 +100,10 @@ class GripperController(Node):
         Returns:
             成功返回True，失败或超时返回False
         """
-        self._send_gripper_command(self.close_position)
-        self.get_logger().info("关闭夹爪")
+        if not self._send_gripper_command(self.close_position):
+            return False
+        
+        logger.info("关闭夹爪")
         return self._wait_for_position(self.close_position, timeout)
     
     def set_joint(self, position: float, timeout: float = 5.0) -> bool:
@@ -159,8 +121,10 @@ class GripperController(Node):
         max_pos = max(self.open_position, self.close_position)
         position = max(min_pos, min(max_pos, position))
         
-        self._send_gripper_command(position)
-        self.get_logger().info(f"设置夹爪位置: {position:.3f}")
+        if not self._send_gripper_command(position):
+            return False
+        
+        logger.info(f"设置夹爪位置: {position:.3f}")
         return self._wait_for_position(position, timeout)
     
     def get_joint(self) -> Optional[float]:
@@ -169,10 +133,14 @@ class GripperController(Node):
         Returns:
             当前夹爪位置，如果无法获取则返回None
         """
-        current_joints = self._get_current_joints()
-        if not current_joints or len(current_joints) <= self.joint_index:
+        try:
+            joints = self.so100_driver.read_joints()
+            if not joints or len(joints) <= self.joint_index:
+                return None
+            return joints[self.joint_index]
+        except Exception as e:
+            logger.error(f"获取夹爪位置失败: {e}")
             return None
-        return current_joints[self.joint_index]
     
     def set_opening_percentage(self, percent: float, timeout: float = 5.0) -> bool:
         """按百分比设置夹爪开度
@@ -191,9 +159,10 @@ class GripperController(Node):
         range_total = self.open_position - self.close_position
         target_pos = self.close_position + (percent / 100.0) * range_total
         
-        self._send_gripper_command(target_pos)
-        self.get_logger().info(f"设置夹爪开度: {percent:.1f}%")
+        if not self._send_gripper_command(target_pos):
+            return False
         
+        logger.info(f"设置夹爪开度: {percent:.1f}%")
         return self._wait_for_position(target_pos, timeout)
     
     def get_opening_percentage(self) -> Optional[float]:
@@ -214,54 +183,120 @@ class GripperController(Node):
         percentage = (position - self.close_position) / range_total * 100.0
         return max(0.0, min(100.0, percentage))
     
+    def destroy_node(self):
+        """安全销毁"""
+        if hasattr(self, 'so100_driver'):
+            self.so100_driver.stop()
+
+def test_gripper_basic(gripper):
+    """基础夹爪测试"""
+    print("=== 基础夹爪测试 ===")
+    
+    print("当前夹爪位置:")
+    current_pos = gripper.get_joint()
+    current_percent = gripper.get_opening_percentage()
+    print(f"  位置: {current_pos}")
+    print(f"  开度: {current_percent:.1f}%")
+    
+    print("\n打开夹爪...")
+    success = gripper.open(timeout=3)
+    print(f"打开结果: {success}")
+    print(f"当前位置: {gripper.get_joint()}")
+    
+    input("按回车继续...")
+    
+    print("\n关闭夹爪...")
+    success = gripper.close(timeout=3)
+    print(f"关闭结果: {success}")
+    print(f"当前位置: {gripper.get_joint()}")
+
+def test_gripper_percentage(gripper):
+    """百分比开度测试"""
+    print("=== 百分比开度测试 ===")
+    
+    percentages = [0, 25, 50, 75, 100]
+    
+    for percent in percentages:
+        print(f"\n设置开度为 {percent}%...")
+        success = gripper.set_opening_percentage(percent, timeout=2)
+        current_percent = gripper.get_opening_percentage()
+        print(f"设置结果: {success}")
+        print(f"当前开度: {current_percent:.1f}%")
+        input("按回车继续...")
+
+def test_gripper_oscillation(gripper):
+    """夹爪来回摆动测试"""
+    print("=== 夹爪摆动测试 ===")
+    print("按Ctrl+C停止")
+    
+    joint_max = gripper.open_position
+    joint_min = gripper.close_position
+    step = 0.01
+    going_up = True
+    joint = joint_min
+    
+    try:
+        while True:
+            gripper.set_joint(joint, timeout=0)
+            print(f"关节位置: {joint:.3f} {'↑' if going_up else '↓'}")
+            
+            if going_up:
+                joint += step
+                if joint >= joint_max:
+                    going_up = False
+            else:
+                joint -= step
+                if joint <= joint_min:
+                    going_up = True
+            
+            time.sleep(0.02)
+    except KeyboardInterrupt:
+        print("\n摆动测试结束")
 
 def main():
     """测试函数"""
-    rclpy.init()
     gripper = None
     
     try:
         gripper = GripperController()
         
-        gripper.open()
-
-        # # 读取夹爪位置
-        # while True:
-        #     joints = gripper.get_joint()
-        #     if joints is not None:
-        #         print(f"当前位置: {joints:.3f}")
-        #     time.sleep(0.01)  # 可以设置更长的间隔
-
-
-        # 夹爪来回摆动
-        # joint_max = 1.2
-        # joint_min = -0.15
-        # step = 0.001
-        # going_up = True
-        # joint = joint_min
-
-        # while True:
-        #     gripper.set_joint(joint, timeout=0)
-        #     print(f"关节位置: {joint + step * (1 if going_up else -1):.3f} {'↑' if going_up else '↓'}")
-            
-        #     if going_up:
-        #         joint += step
-        #         if joint >= joint_max:
-        #             going_up = False
-        #     else:
-        #         joint -= step
-        #         if joint <= joint_min:
-        #             going_up = True
-            
-        #     time.sleep(0.01)
+        # 测试列表
+        tests = {
+            '1': ('基础夹爪测试', test_gripper_basic),
+            '2': ('百分比开度测试', test_gripper_percentage),
+            '3': ('夹爪摆动测试', test_gripper_oscillation),
+        }
+        
+        print("可用测试：")
+        for key, (name, _) in tests.items():
+            print(f"  {key}: {name}")
+        
+        choice = input(f"\n请选择测试 (1-{len(tests)}, 回车跳过): ").strip()
+        
+        if choice in tests:
+            test_name, test_func = tests[choice]
+            print(f"\n开始测试: {test_name}")
+            test_func(gripper)
+        else:
+            print("跳过测试，程序正常结束")
 
     except KeyboardInterrupt:
-        print("用户中断")
+        logger.info("用户中断")
+    except Exception as e:
+        logger.error(f"错误: {e}")
+        import traceback
+        traceback.print_exc()
     finally:
         if gripper:
-            gripper.destroy_node()
-        rclpy.shutdown()
-
+            try:
+                gripper.destroy_node()
+            except Exception as e:
+                logger.error(f"销毁节点错误: {e}")
 
 if __name__ == '__main__':
+    logger.remove()
+    logger.add(
+        os.sys.stdout,
+        format="<level>{level: <4}</level> | <cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>"
+    )
     main()

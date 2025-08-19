@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""SO-100机械臂控制器 - 直接硬件控制版本"""
+"""SO-100机械臂控制器 - 直接硬件控制版本 (轴角版本)"""
 
 import math
 import json
@@ -205,16 +205,18 @@ class Arm:
         """将位姿列表转换为4x4齐次变换矩阵
         
         Args:
-            pose_components: [x, y, z, roll, pitch, yaw] 欧拉角格式
+            pose_components: [x, y, z, ax, ay, az, angle] 轴角格式
         """
-        if len(pose_components) != 6:
-            logger.error(f"pose_components length({len(pose_components)}) != 6")
+        if len(pose_components) != 7:
+            logger.error(f"pose_components length({len(pose_components)}) != 7")
             return None
 
         position = pose_components[:3]
-        euler_angles = pose_components[3:]  # [roll, pitch, yaw]
+        ax, ay, az, angle = pose_components[3:]
         
-        rotation_matrix = Rotation.from_euler('xyz', euler_angles).as_matrix()
+        # 轴角转换为旋转矩阵
+        rot_vec = np.array([ax, ay, az]) * angle
+        rotation_matrix = Rotation.from_rotvec(rot_vec).as_matrix()
         
         pose_matrix = np.eye(4)
         pose_matrix[:3, :3] = rotation_matrix
@@ -225,7 +227,7 @@ class Arm:
         """计算正运动学
         
         Returns:
-            位姿列表 [x, y, z, roll, pitch, yaw] 欧拉角格式
+            位姿列表 [x, y, z, ax, ay, az, angle] 轴角格式
         """
         if self.robot_model is None:
             logger.error("机器人模型未加载")
@@ -238,9 +240,17 @@ class Arm:
             
             position = fk_pose_matrix.t
             rotation_matrix = fk_pose_matrix.R
-            euler_angles = Rotation.from_matrix(rotation_matrix).as_euler('xyz')
             
-            pose_list = list(position) + list(euler_angles)
+            # 转换为轴角表示
+            rot_vec = Rotation.from_matrix(rotation_matrix).as_rotvec()
+            angle = np.linalg.norm(rot_vec)
+            if angle < 1e-6:  # 接近零旋转
+                axis = [0, 0, 1]  # 默认Z轴
+                angle = 0
+            else:
+                axis = rot_vec / angle
+            
+            pose_list = list(position) + list(axis) + [angle]
             return pose_list
             
         except Exception as e:
@@ -251,7 +261,7 @@ class Arm:
         """计算逆运动学
         
         Args:
-            target_pose_list: [x, y, z, roll, pitch, yaw] 欧拉角格式
+            target_pose_list: [x, y, z, ax, ay, az, angle] 轴角格式
         """
         if self.robot_model is None:
             logger.error("机器人模型未加载")
@@ -299,7 +309,7 @@ class Arm:
         """计算逆运动学关节解
         
         Args:
-            target_pose_list: [x, y, z, roll, pitch, yaw] 欧拉角格式
+            target_pose_list: [x, y, z, ax, ay, az, angle] 轴角格式
         """
         # 1. 使用当前关节角度逆解
         current_joints = self.get_joints()
@@ -350,7 +360,7 @@ class Arm:
         """获取位姿
         
         Returns:
-            位姿列表 [x, y, z, roll, pitch, yaw] 或 None (欧拉角格式)
+            位姿列表 [x, y, z, ax, ay, az, angle] 或 None (轴角格式)
         """
         joints = self.get_joints()
         if joints is None:
@@ -367,16 +377,7 @@ class Arm:
     # ==================== 运动控制接口 ====================
     
     def move_to_joints(self, joints: List[float], timeout: float = 100, tolerance: float = 0.04) -> bool:
-        """设置机械臂关节位置
-        
-        Args:
-            joints: 目标关节位置 (5个关节)
-            timeout: 超时时间，>0时等待到位，<=0时不等待
-            tolerance: 位置容差
-            
-        Returns:
-            成功返回True，失败或超时返回False
-        """
+        """设置机械臂关节位置"""
 
         global TARGET_JOINTS
         TARGET_JOINTS = joints
@@ -406,7 +407,7 @@ class Arm:
         Args:
             target_pose_list: 目标位姿，可以是：
                 - 3个位置参数: [x, y, z] (保持当前姿态)
-                - 6个位姿参数: [x, y, z, roll, pitch, yaw] (欧拉角，弧度)
+                - 7个位姿参数: [x, y, z, ax, ay, az, angle] (轴角，弧度)
             timeout: 超时时间
             tolerance: 位置容差
             tcp: True为TCP移动，False为flange移动，默认为True
@@ -420,21 +421,21 @@ class Arm:
                 return False
             
             target_position = target_pose_list
-            target_rotation_euler = list(current_pose[3:])
+            target_rotation_axis_angle = list(current_pose[3:])
 
-        elif len(target_pose_list) == 6:
+        elif len(target_pose_list) == 7:
             target_position = target_pose_list[:3]
-            target_rotation_euler = target_pose_list[3:]  # [roll, pitch, yaw]
+            target_rotation_axis_angle = target_pose_list[3:]  # [ax, ay, az, angle]
             
         else:
-            logger.error(f"target pose length({len(target_pose_list)}) != 3 or 6 !")
+            logger.error(f"target pose length({len(target_pose_list)}) != 3 or 7 !")
             return False
         
-        # 组合完整的6元素位姿
-        target_pose_euler = list(target_position) + list(target_rotation_euler)
-        target_pose_euler_reachable = self._tuning_rotation_reachable(target_pose_euler)
+        # 组合完整的7元素位姿
+        target_pose_axis_angle = list(target_position) + list(target_rotation_axis_angle)
+        target_pose_axis_angle_reachable = self._tuning_rotation_reachable(target_pose_axis_angle)
 
-        ik_joints = self.cacul_ik_joints_within_limits_from_pose(target_pose_euler_reachable, use_tool=tcp)
+        ik_joints = self.cacul_ik_joints_within_limits_from_pose(target_pose_axis_angle_reachable, use_tool=tcp)
         if ik_joints is None:
             logger.error(f"cacul_ik_joints_within_limits_from_pose failed !")
             return False
@@ -518,14 +519,19 @@ class Arm:
             theta += 2 * np.pi
         return theta
 
-    def _get_theta_from_rotation(self, rotation):
-        """根据旋转获取角度，范围 [0, 2π]"""
-        if len(rotation) != 3:
-            logger.error(f"rotation length({len(rotation)}) != 3")
+    def _get_theta_from_rotation(self, rotation_axis_angle):
+        """根据轴角旋转获取角度，范围 [0, 2π]"""
+        if len(rotation_axis_angle) != 4:
+            logger.error(f"rotation_axis_angle length({len(rotation_axis_angle)}) != 4")
             return 0.0
             
+        ax, ay, az, angle = rotation_axis_angle
+        
+        # 从轴角转换为旋转对象
+        rot_vec = np.array([ax, ay, az]) * angle
+        rot = Rotation.from_rotvec(rot_vec)
+        
         # 获取旋转后的Y轴向量
-        rot = Rotation.from_euler('xyz', rotation)
         vy = rot.apply([0, 1, 0])
         
         # 在XY平面投影
@@ -543,29 +549,47 @@ class Arm:
         
         return theta
 
-    def _roll_rotation(self, rotation, angle, axis=[0, 0, 1]):
-        """绕轴旋转欧拉角"""
-        if len(rotation) != 3:
-            logger.error(f"rotation length({len(rotation)}) != 3")
-            return rotation
-            
-        original_rotation = Rotation.from_euler('xyz', rotation)
-        axis = np.array(axis) / np.linalg.norm(axis)
-        axis_rotation = Rotation.from_rotvec(angle * axis)
-        combined_rotation = axis_rotation * original_rotation
-        return combined_rotation.as_euler('xyz').tolist()
+    def _roll_rotation(self, rotation_axis_angle, angle, axis=(0, 0, 1)):
+        if len(rotation_axis_angle) != 4:
+            logger.error(f"rotation_axis_angle length({len(rotation_axis_angle)}) != 4")
+            return rotation_axis_angle
+
+        print(f"rotation_axis_angle: {rotation_axis_angle}")
+        print(f"angle: {angle}")
+        print(f"axis: {axis}")
+
+        ax, ay, az, original_angle = rotation_axis_angle
+        base_axis = np.array([ax, ay, az], dtype=float)
+        n = np.linalg.norm(base_axis)
+        if n < 1e-8:
+            base_axis = np.array([0.0, 0.0, 1.0]); original_angle = 0.0
+        else:
+            base_axis = base_axis / n
+
+        original_rotation = Rotation.from_rotvec(base_axis * original_angle)
+
+        rot_axis = np.array(axis, dtype=float)
+        rot_n = np.linalg.norm(rot_axis)
+        rot_axis = rot_axis / (rot_n if rot_n > 1e-8 else 1.0)
+
+        combined_rotation = Rotation.from_rotvec(angle * rot_axis) * original_rotation
+        rotvec = combined_rotation.as_rotvec()
+        mag = np.linalg.norm(rotvec)
+        if mag < 1e-8:
+            return [0.0, 0.0, 1.0, 0.0]
+        return (rotvec / mag).tolist() + [mag]
 
     def _is_rotation_reachable(self, pose):
         """检查旋转是否可达"""
-        if len(pose) < 6:
-            logger.error(f"pose length({len(pose)}) < 6")
+        if len(pose) < 7:
+            logger.error(f"pose length({len(pose)}) < 7")
             return False  # 默认可达
             
         position = pose[:3]
-        rotation = pose[3:6]  # 只取前3个旋转分量
+        rotation_axis_angle = pose[3:7]  # [ax, ay, az, angle]
         
         theta_position = self._get_theta_from_position(position)
-        theta_rotation = self._get_theta_from_rotation(rotation)
+        theta_rotation = self._get_theta_from_rotation(rotation_axis_angle)
         print(f"theta_position: {theta_position * 180 / np.pi}")
         print(f"theta_rotation: {theta_rotation * 180 / np.pi}")
 
@@ -581,18 +605,18 @@ class Arm:
         """调整位姿使旋转可达
         
         Args:
-            pose: [x, y, z, roll, pitch, yaw] 欧拉角格式
+            pose: [x, y, z, ax, ay, az, angle] 轴角格式
         
         Returns:
             调整后的位姿或原位姿
         """
-        if len(pose) != 6:
-            logger.warning(f"pose length({len(pose)}) != 6, skip rotation tuning")
+        if len(pose) != 7:
+            logger.warning(f"pose length({len(pose)}) != 7, skip rotation tuning")
             return pose
         
         try:
             position = pose[:3]
-            rotation = pose[3:6]
+            rotation_axis_angle = pose[3:7]
             
             print(f"pose: {pose}")
             
@@ -603,17 +627,17 @@ class Arm:
             
             # 计算调整角度
             theta_position = self._get_theta_from_position(position)
-            theta_rotation = self._get_theta_from_rotation(rotation)
+            theta_rotation = self._get_theta_from_rotation(rotation_axis_angle)
             theta_diff = theta_position - theta_rotation
             print(f"theta_diff: {theta_diff}")
             print(f"theta_position: {theta_position}")
             print(f"theta_rotation: {theta_rotation}")
 
             # 调整旋转
-            new_rotation = self._roll_rotation(rotation, theta_diff)
-            print(f"new_rotation: {new_rotation}")
+            new_rotation_axis_angle = self._roll_rotation(rotation_axis_angle, theta_diff)
+            print(f"new_rotation_axis_angle: {new_rotation_axis_angle}")
 
-            new_pose = list(position) + new_rotation
+            new_pose = list(position) + new_rotation_axis_angle
             print(f"new_pose: {new_pose}")
             
             # 验证调整结果
@@ -648,7 +672,9 @@ class Arm:
             return False
         
         # 获取当前姿态的旋转矩阵
-        current_rotation = Rotation.from_euler('xyz', current_pose[3:])
+        ax, ay, az, angle = current_pose[3:7]
+        rot_vec = np.array([ax, ay, az]) * angle
+        current_rotation = Rotation.from_rotvec(rot_vec)
         rotation_matrix = current_rotation.as_matrix()
         
         # 将相对向量转换到世界坐标系

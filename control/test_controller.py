@@ -1,23 +1,37 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""SO-100机械臂控制器测试程序"""
+"""SO-100机械臂控制器测试程序 - 轴角版本"""
 
-import rclpy
 import time
 import os
 from loguru import logger
 from control.arm_controller import Arm
 
-import matplotlib
-matplotlib.use('QtAgg')  # 优先使用统一的 Qt 后端
-# 如果你的 Matplotlib 版本较老，则用：
-# matplotlib.use('Qt5Agg')
+# ==================== 日志打印函数 ====================
+
+def wsy_print(*args, **kwargs):
+    """带前缀的打印函数，方便日志筛选"""
+    prefix = "wsy: "
+    if args:
+        # 处理开头的换行符
+        first_arg = str(args[0])
+        if first_arg.startswith('\n'):
+            print()  # 先输出换行
+            first_arg = first_arg[1:]  # 去掉开头的换行符
+        print(prefix + first_arg, *args[1:], **kwargs)
+    else:
+        print(prefix, **kwargs)
+
+# import matplotlib
+# matplotlib.use('QtAgg')  # 优先使用统一的 Qt 后端
+# # 如果你的 Matplotlib 版本较老，则用：
+# # matplotlib.use('Qt5Agg')
 
 def test_move_to_joints(arm):
     """测试关节运动"""
     print("=== 测试关节运动 ===")
     joints1 = [0.0, 0.0, 0.0, 0.0, 0.0]
-    joints2 = [0.5, -0.2, 0.3, 0.1, -0.4]
+    joints2 = [-0.78, -0.78, -0.78, -0.78, -0.78]
     
     print("移动到关节位置1...")
     arm.move_to_joints(joints1, timeout=10, tolerance=0.01)
@@ -31,8 +45,8 @@ def test_move_to_joints(arm):
 def test_move_to_position(arm):
     """测试位置运动（保持当前姿态）"""
     print("=== 测试位置运动 ===")
-    position1 = [0.2, -0.2, 0.3]
-    position2 = [-0.1, -0.3, 0.2]
+    position1 = [0.2, -0.2, 0.2]
+    position2 = [-0.1, -0.3, 0.3]
     
     print(f"移动到位置1: {position1}")
     arm.move_to_pose(position1, timeout=10, tolerance=0.01)
@@ -44,25 +58,51 @@ def test_move_to_position(arm):
     print(f"当前位姿: {arm.get_pose()}")
 
 def test_move_to_pose(arm):
-    """测试完整位姿运动"""
-    print("=== 测试完整位姿运动 ===")
-    pose1 = [0.2, -0.2, 0.3, 0, 0, 0]
-    pose2 = [-0.1, -0.3, 0.2, 0.2, 0.1, -0.3]
+    """测试完整位姿运动 - 轴角格式"""
+    print("=== 测试完整位姿运动 (轴角格式) ===")
+    # 轴角格式: [x, y, z, ax, ay, az, angle]
+    pose10 = [0.2, -0.2, 0.2, 0, 0, 1, 0]  # 无旋转
+    pose1rx = [0.2, -0.2, 0.2, 1, 0, 0, 0.78]  # 绕X轴旋转0.2弧度
+    pose1ry = [0.2, -0.2, 0.2, 0, 1, 0, 0.78]  # 绕X轴旋转0.2弧度
+    pose1rz = [0.2, -0.2, 0.2, 0, 0, 1, 0.78]  # 绕X轴旋转0.2弧度
+
+    pose20 = [-0.1, -0.3, 0.3, 0, 0, 1, 0]  # 无旋转
+    pose2rx = [-0.1, -0.3, 0.3, 1, 0, 0, 0.78]  # 绕X轴旋转0.2弧度
+    pose2ry = [-0.1, -0.3, 0.3, 0, 1, 0, 0.78]  # 绕X轴旋转0.2弧度
+    pose2rz = [-0.1, -0.3, 0.3, 0, 0, 1, 0.78]  # 绕X轴旋转0.2弧度
     
-    print(f"移动到位姿1: {pose1}")
-    arm.move_to_pose(pose1, timeout=10, tolerance=0.01)
+    print(f"移动到位姿1 (轴角): {pose10}")
+    arm.move_to_pose(pose10, timeout=10, tolerance=0.01)
     print(f"当前位姿: {arm.get_pose()}")
-    
-    input("按回车继续...")
-    print(f"移动到位姿2: {pose2}")
-    arm.move_to_pose(pose2, timeout=10, tolerance=0.01)
+    input("按回车, 绕X轴旋转0.78弧度...")
+    arm.move_to_pose(pose1rx, timeout=10, tolerance=0.01)
+    print(f"当前位姿: {arm.get_pose()}")
+    input("按回车, 绕Y轴旋转0.78弧度...")
+    arm.move_to_pose(pose1ry, timeout=10, tolerance=0.01)
+    print(f"当前位姿: {arm.get_pose()}")
+    input("按回车, 绕Z轴旋转0.78弧度...")
+    arm.move_to_pose(pose1rz, timeout=10, tolerance=0.01)   
+    print(f"当前位姿: {arm.get_pose()}")
+
+    input("按回车, 移动到位姿2...")
+    print(f"移动到位姿2 (轴角): {pose20}")
+    arm.move_to_pose(pose20, timeout=10, tolerance=0.01)
+    print(f"当前位姿: {arm.get_pose()}")
+    input("按回车, 绕X轴旋转0.0弧度...")
+    arm.move_to_pose(pose2rx, timeout=10, tolerance=0.01)
+    print(f"当前位姿: {arm.get_pose()}")
+    input("按回车, 绕Y轴旋转0.0弧度...")
+    arm.move_to_pose(pose2ry, timeout=10, tolerance=0.01)
+    print(f"当前位姿: {arm.get_pose()}")
+    input("按回车, 绕Z轴旋转0.0弧度...")
+    arm.move_to_pose(pose2rz, timeout=10, tolerance=0.01)
     print(f"当前位姿: {arm.get_pose()}")
 
 def test_move_line(arm):
     """测试直线运动"""
     print("=== 测试直线运动 ===")
-    start_pos = [0.2, -0.2, 0.3, 0, 0, 0]
-    end_pos = [-0.1, -0.3, 0.2, 0, 0, 0]
+    start_pos = [0.2, -0.2, 0.2]
+    end_pos = [-0.1, -0.3, 0.3]
     
     print(f"直线运动: {start_pos} -> {end_pos}")
     arm.move_line(start_pos, end_pos, step=0.02, timeout=20, tolerance=0.01)
@@ -101,10 +141,13 @@ def test_joints_precision(arm):
     arm.move_to_joints(target_joints, timeout=10, tolerance=0.005)
     current_joints = arm.get_joints()
     
-    diff = [abs(target_joints[i] - current_joints[i]) for i in range(5)]
-    print(f"当前关节: {current_joints}")
-    print(f"误差: {diff}")
-    print(f"最大误差: {max(diff):.4f}")
+    if current_joints:
+        diff = [abs(target_joints[i] - current_joints[i]) for i in range(5)]
+        print(f"当前关节: {current_joints}")
+        print(f"误差: {diff}")
+        print(f"最大误差: {max(diff):.4f}")
+    else:
+        print("无法获取当前关节位置")
 
 def test_joints_high_frequency_control(arm):
     """测试高频关节控制"""
@@ -142,63 +185,92 @@ def test_get_joints(arm):
         time.sleep(0.1)
 
 def test_get_pose(arm):
-    """测试获取位姿"""
-    print("=== 测试获取位姿 ===")
+    """测试获取位姿 - 轴角格式"""
+    print("=== 测试获取位姿 (轴角格式) ===")
     print("连续获取位姿5次...")
     
     for i in range(5):
         tcp_pose = arm.get_pose(tcp=True)
         flange_pose = arm.get_pose(tcp=False)
         print(f"第{i+1}次:")
-        print(f"  TCP位姿: {tcp_pose}")
-        print(f"  Flange位姿: {flange_pose}")
+        print(f"  TCP位姿 [x,y,z,ax,ay,az,angle]: {tcp_pose}")
+        print(f"  Flange位姿 [x,y,z,ax,ay,az,angle]: {flange_pose}")
         time.sleep(0.2)
 
 def test_tuning_rotation_reachable(arm):
-    """测试旋转可达性调整"""
-    print("\nwsy=== 测试旋转可达性调整 ===")
-    # pose = [0.06643699856111875, -0.16562473378074943, 0.06919128028718832, 1.7640112216671655, 0.08231736788759281, 0.10629035256903263]
-    # pose = [0.2, -0.2, 0.2, 0.5, 0.0, 0.0]
-    # pose = [0.2, -0.2, 0.2, 0.0, 0.0, 0.784]
-    # pose = [0.2, -0.001, 0.2, 0.0, 0.0, 1.0]
-    # pose = [0.2, -0.001, 0.2, 1.7, 0.08, 0.1]
-    pose = [0.2, -0.2, 0.2, 1.7, 0.1, 0.1]
-    print(f"wsy测试 pose: {pose}")
+    """测试旋转可达性调整 - 轴角格式"""
+    wsy_print("=== 测试旋转可达性调整 (轴角格式) ===")
+    # 轴角格式测试位姿: [x, y, z, ax, ay, az, angle]
+    # pose = [0.2, -0.2, 0.2, 1, 0, 0, 1.7]  # 绕Z轴旋转1.7弧度
+    pose = [-0.3, -0.3, 0.3, 1, 0, 0, 0.78]
+    # pose = [-0.1, -0.3, 0.3, 0, 1, 0, 0.78]
+    # pose = [-0.1, -0.3, 0.3, 0, 0, 1, 0.78]
+    # print(f"测试位姿 (轴角): {pose}")
+    wsy_print(f"测试位姿 (轴角): {pose}")
+    
     if not arm._is_rotation_reachable(pose):
-        print(f"wsypose 不可达")
+        wsy_print("位姿不可达")
+    else:
+        wsy_print("位姿可达")
 
-    print(f"\nwsy计算 ik 解")
+    wsy_print("\n计算逆运动学解...")
     ik_result = arm.cacul_ik_joints_within_limits_from_pose(pose)
-    print(f"wsyik_result: {ik_result}")
+    wsy_print(f"逆解结果: {ik_result}")
 
-    print(f"\nwsy尝试调整旋转到可达位置")
+    wsy_print("\n尝试调整旋转到可达位置...")
     pose2 = arm._tuning_rotation_reachable(pose)
-    print(f"wsy调整后 pose: {pose2}")
+    wsy_print(f"调整后位姿: {pose2}")
 
-    print(f"\nwsy计算新pose ik 解")    
+    wsy_print("\n检查调整后位姿可达性...")    
     if not arm._is_rotation_reachable(pose2):
-        print(f"wsy调整后仍不可达")
+        wsy_print("调整后仍不可达")
+    else:
+        wsy_print("调整后可达")
 
     ik_result2 = arm.cacul_ik_joints_within_limits_from_pose(pose2)
-    print(f"wsyik_result2: {ik_result2}")
+    wsy_print(f"调整后逆解结果: {ik_result2}")
 
+def test_direction_movement(arm):
+    """测试方向移动"""
+    print("=== 测试方向移动 ===")
+    
+    print("当前位姿:")
+    current_pose = arm.get_pose()
+    print(f"  {current_pose}")
+    
+    # 测试绝对方向移动
+    print("\n测试绝对方向移动 (+X方向 0.05m)...")
+    vector_abs = [0.05, 0, 0]
+    success = arm.move_to_direction_abs(vector_abs)
+    print(f"绝对移动结果: {success}")
+    print(f"移动后位姿: {arm.get_pose()}")
+    
+    input("按回车继续测试相对方向移动...")
+    
+    # 测试相对方向移动
+    print("\n测试相对方向移动 (相对+Y方向 0.05m)...")
+    vector_rel = [0, 0.05, 0]
+    success = arm.move_to_direction_relative(vector_rel)
+    print(f"相对移动结果: {success}")
+    print(f"移动后位姿: {arm.get_pose()}")
 
 def main(): 
     """测试主函数"""
-    rclpy.init()
     arm = None
     
     try:
         arm = Arm()
         print("机械臂初始化成功")
-        print(f"当前关节: {arm.get_joints()}")
-        print(f"当前TCP位姿: {arm.get_pose()}")
+        current_joints = arm.get_joints()
+        current_pose = arm.get_pose()
+        print(f"当前关节: {current_joints}")
+        print(f"当前TCP位姿 (轴角格式): {current_pose}")
         
         # 测试列表
         tests = {
             '1': ('关节运动', test_move_to_joints),
             '2': ('位置运动', test_move_to_position),
-            '3': ('完整位姿运动', test_move_to_pose),
+            '3': ('完整位姿运动 (轴角)', test_move_to_pose),
             '4': ('直线运动', test_move_line),
             '5': ('移动到Home', test_move_home),
             '6': ('移动到Up', test_move_to_up_pose),
@@ -206,8 +278,9 @@ def main():
             '8': ('关节精度测试', test_joints_precision),
             '9': ('高频控制', test_joints_high_frequency_control),
             '10': ('获取关节', test_get_joints),
-            '11': ('获取位姿', test_get_pose),
-            '12': ('测试旋转可达性调整', test_tuning_rotation_reachable),
+            '11': ('获取位姿 (轴角)', test_get_pose),
+            '12': ('旋转可达性调整 (轴角)', test_tuning_rotation_reachable),
+            '13': ('方向移动测试', test_direction_movement),
         }
         
         print("\n可用测试：")
@@ -215,7 +288,7 @@ def main():
             print(f"  {key}: {name}")
         
         # choice = input(f"\n请选择测试 (1-{len(tests)}, 回车跳过): ").strip()
-        choice = '12'
+        choice = "12"
         
         if choice in tests:
             test_name, test_func = tests[choice]
@@ -236,11 +309,6 @@ def main():
                 arm.destroy_node()
             except Exception as e:
                 logger.error(f"销毁节点错误: {e}")
-        
-        try:
-            rclpy.shutdown()
-        except Exception as e:
-            logger.error(f"关闭rclpy错误: {e}")
 
 if __name__ == '__main__':
     logger.remove()
