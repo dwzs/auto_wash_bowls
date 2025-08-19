@@ -5,7 +5,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
-from matplotlib.widgets import Slider, TextBox
+from matplotlib.widgets import Slider, TextBox, Button
 from scipy.spatial.transform import Rotation
 
 # ==================== 轴显示范围设置 ====================
@@ -24,7 +24,7 @@ class InteractivePoseViewer:
         self._updating = False  # 防止相互触发的标志
         
         # 创建图形和子图
-        self.fig = plt.figure(figsize=(14, 10))
+        self.fig = plt.figure(figsize=(18, 12))
         
         # 3D图形区域
         self.ax = self.fig.add_subplot(121, projection='3d')
@@ -60,6 +60,11 @@ class InteractivePoseViewer:
         self.input_ax = self.fig.add_axes([0.6, 0.28, 0.3, 0.05])
         self.pose_box = TextBox(self.input_ax, 'Pose:', initial=self._pose_str())
         self.pose_box.on_submit(self._on_pose_submit)
+
+        # 重置按钮（放在输入框下方）
+        self.reset_ax = self.fig.add_axes([0.6, 0.22, 0.1, 0.05])
+        self.reset_btn = Button(self.reset_ax, 'Reset')
+        self.reset_btn.on_clicked(self._on_reset)
 
         # 添加文本显示区域
         self.text_ax = self.fig.add_axes([0.6, 0.35, 0.3, 0.15])
@@ -127,9 +132,13 @@ class InteractivePoseViewer:
         self.ax.quiver(0, 0, 0, 0, 0, world_axis_length, color='blue', alpha=0.5, linewidth=2, label='World Z')
         
         # 计算位姿坐标轴
-        rotation = Rotation.from_euler('xyz', euler_angles)
+        # 使用标准RPY内在旋转：先Yaw(Z)，再Pitch(Y)，后Roll(X)
+        roll, pitch, yaw = euler_angles
+        rotation = Rotation.from_euler('ZYX', [yaw, pitch, roll])
+        # rotation = Rotation.from_euler('xyz', euler_angles)
         pose_axis_length = 0.1
         
+
         # 显示位姿点
         self.ax.scatter(*position, color='orange', s=150, label='Pose')
         
@@ -160,6 +169,20 @@ class InteractivePoseViewer:
     
         self.fig.canvas.draw()
     
+    def _on_reset(self, event):
+        """重置位姿为零"""
+        self.pose = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        self._updating = True
+        self.sliders[0].set_val(0.0)
+        self.sliders[1].set_val(0.0)
+        self.sliders[2].set_val(0.0)
+        self.sliders[3].set_val(0.0)
+        self.sliders[4].set_val(0.0)
+        self.sliders[5].set_val(0.0)
+        self.pose_box.set_val(self._pose_str())
+        self._updating = False
+        self.update_plot()
+
 
 if __name__ == '__main__':
     try:

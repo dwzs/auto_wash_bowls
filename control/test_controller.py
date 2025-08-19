@@ -8,6 +8,11 @@ import os
 from loguru import logger
 from control.arm_controller import Arm
 
+import matplotlib
+matplotlib.use('QtAgg')  # 优先使用统一的 Qt 后端
+# 如果你的 Matplotlib 版本较老，则用：
+# matplotlib.use('Qt5Agg')
+
 def test_move_to_joints(arm):
     """测试关节运动"""
     print("=== 测试关节运动 ===")
