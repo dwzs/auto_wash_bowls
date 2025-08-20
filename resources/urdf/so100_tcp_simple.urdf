@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- This URDF was automatically created by SolidWorks to URDF Exporter! Originally created by Stephen Brawner (brawner@gmail.com) 
+     Commit Version: 1.6.0-1-g15f4949  Build Version: 1.6.7594.29634
+     For more information, please see http://wiki.ros.org/sw_urdf_exporter -->
+<robot
+  name="SO_5DOF_ARM100_8j_URDF.SLDASM">
+  <joint
+    name="Rotation"
+    type="revolute">
+    <origin
+      xyz="0 -0.0452 0.0165"
+      rpy="1.5708 0 0" />
+    <parent
+      link="Base" />
+    <child
+      link="Rotation_Pitch" />
+    <axis
+      xyz="0 1 0" />
+    <limit lower="-1.76" upper="1.8" effort="10.0" velocity="1.0"/>
+  </joint>
+  <joint
+    name="Pitch"
+    type="revolute">
+    <origin
+      xyz="0 0.1025 0.0306"
+      rpy="0 0 0" />
+    <parent
+      link="Rotation_Pitch" />
+    <child
+      link="Upper_Arm" />
+    <axis
+      xyz="1 0 0" />
+    <limit lower="-1.8" upper="1.9" effort="10.0" velocity="1.0"/>
+  </joint>
+  <joint
+    name="Elbow"
+    type="revolute">
+    <origin
+      xyz="0 0.11257 0.028"
+      rpy="0 0 0" />
+    <parent
+      link="Upper_Arm" />
+    <child
+      link="Lower_Arm" />
+    <axis
+      xyz="1 0 0" />
+    <limit lower="-1.78" upper="1.57" effort="10.0" velocity="1.0"/>
+  </joint>
+  <joint
+    name="Wrist_Pitch"
+    type="revolute">
+    <origin
+      xyz="0 0.0052 0.1349"
+      rpy="0 0 0" />
+    <parent
+      link="Lower_Arm" />
+    <child
+      link="Wrist_Pitch_Roll" />
+    <axis
+      xyz="1 0 0" />
+    <limit lower="-3.566" upper="0.19" effort="10.0" velocity="1.0"/>
+  </joint>
+  <joint
+    name="Wrist_Roll"
+    type="revolute">
+    <origin
+      xyz="0 -0.0601 0"
+      rpy="0 0 0" />
+    <parent
+      link="Wrist_Pitch_Roll" />
+    <child
+      link="Fixed_Jaw" />
+    <axis
+      xyz="0 1 0" />
+    <limit lower="-1.73" upper="1.71" effort="10.0" velocity="1.0"/>
+  </joint>
+  <joint
+    name="j_tcp"
+    type="fixed">
+    <origin
+      xyz="0 -0.1 0"
+      rpy="0 0 0" />
+    <parent
+      link="Fixed_Jaw" />
+    <child
+      link="tcp" />
+    <axis
+      xyz="0 1 0" />
+    <limit lower="-0.15" upper="1.96" effort="10.0" velocity="1.0"/>  
+  </joint>
+
+</robot>

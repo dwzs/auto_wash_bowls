@@ -60,7 +60,7 @@ if __name__ == "__main__":
     print("轴角姿态矩阵计算")
     print("="*40)
     
-    pose1 = [1, 0, 0, np.pi/4]  # 绕X轴45度
+    pose1 = [1, 0, 0, 0.78]  # 绕X轴45度
     pose2 = [0, 0, 1, -0.78]  # 绕Z轴90度
     result1 = axis_angle_multiply(pose1, pose2)
     

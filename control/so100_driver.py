@@ -175,7 +175,7 @@ class So100Driver:
                 print(f'ERROR: 关节数量错误: 收到{len(joints_rad)}个，需要{len(self.servo_ids)}个')
                 return False
             
-            print("write joints_rad: ", joints_rad)
+            # print("write joints_rad: ", joints_rad)
             # 准备同步写入数据
             raw_pulses = []
             for i, servo_id in enumerate(self.servo_ids):
@@ -186,7 +186,7 @@ class So100Driver:
                     raw_pulse = self._rad_offseted_to_pulse(joint_rad_offseted, servo_id)
                     raw_pulses.append((servo_id, raw_pulse, speed, acceleration))
             
-            print("raw_pulse: ", raw_pulses)
+            # print("raw_pulse: ", raw_pulses)
             success = self.servo_controller.sync_write_positions(raw_pulses)
             
             if not success:

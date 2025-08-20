@@ -4,6 +4,7 @@
 
 import time
 import os
+import numpy as np
 from loguru import logger
 from control.arm_controller import Arm
 
@@ -30,9 +31,9 @@ def wsy_print(*args, **kwargs):
 def test_move_to_joints(arm):
     """测试关节运动"""
     print("=== 测试关节运动 ===")
-    joints1 = [0.0, 0.0, 0.0, 0.0, 0.0]
-    joints2 = [-0.78, -0.78, -0.78, -0.78, -0.78]
-    
+    joints1 = [-0.78, -0.78, -0.78, -0.78, -0.78]
+    joints2 = [0.0, 0.0, 0.0, 0.0, 0.0]
+
     print("移动到关节位置1...")
     arm.move_to_joints(joints1, timeout=10, tolerance=0.01)
     print(f"当前关节: {arm.get_joints()}")
@@ -67,7 +68,7 @@ def test_move_to_pose(arm):
     pose1rz = [0.2, -0.2, 0.2, 0, 0, 1, 0.78]  # 绕X轴旋转0.2弧度
 
     pose20 = [-0.1, -0.3, 0.3, 0, 0, 1, 0]  # 无旋转
-    pose2rx = [-0.1, -0.3, 0.3, 1, 0, 0, 0.78]  # 绕X轴旋转0.2弧度
+    pose2rx = [-0.1, -0.3, 0.3, 1, 0, 0, -0.78]  # 绕X轴旋转0.2弧度
     pose2ry = [-0.1, -0.3, 0.3, 0, 1, 0, 0.78]  # 绕X轴旋转0.2弧度
     pose2rz = [-0.1, -0.3, 0.3, 0, 0, 1, 0.78]  # 绕X轴旋转0.2弧度
     
@@ -88,13 +89,13 @@ def test_move_to_pose(arm):
     print(f"移动到位姿2 (轴角): {pose20}")
     arm.move_to_pose(pose20, timeout=10, tolerance=0.01)
     print(f"当前位姿: {arm.get_pose()}")
-    input("按回车, 绕X轴旋转0.0弧度...")
+    input("按回车, 绕X轴旋转-0.78弧度...")
     arm.move_to_pose(pose2rx, timeout=10, tolerance=0.01)
     print(f"当前位姿: {arm.get_pose()}")
-    input("按回车, 绕Y轴旋转0.0弧度...")
+    input("按回车, 绕Y轴旋转0.78弧度...")
     arm.move_to_pose(pose2ry, timeout=10, tolerance=0.01)
     print(f"当前位姿: {arm.get_pose()}")
-    input("按回车, 绕Z轴旋转0.0弧度...")
+    input("按回车, 绕Z轴旋转0.78弧度...")
     arm.move_to_pose(pose2rz, timeout=10, tolerance=0.01)
     print(f"当前位姿: {arm.get_pose()}")
 
@@ -135,10 +136,10 @@ def test_move_to_joint_zero_pose(arm):
 def test_joints_precision(arm):
     """测试关节精度"""
     print("=== 测试关节精度 ===")
-    target_joints = [0.5, -0.2, 0.3, 0.1, -0.4]
+    target_joints = [0.0, 0.0, 0.0, 0.0, 0.0]
     
     print(f"目标关节: {target_joints}")
-    arm.move_to_joints(target_joints, timeout=10, tolerance=0.005)
+    arm.move_to_joints(target_joints, timeout=10, tolerance=0.004)
     current_joints = arm.get_joints()
     
     if current_joints:
@@ -148,6 +149,66 @@ def test_joints_precision(arm):
         print(f"最大误差: {max(diff):.4f}")
     else:
         print("无法获取当前关节位置")
+
+def test_pose_precision(arm):
+    """测试位置控制精度"""
+    print("=== 测试位置控制精度 ===")
+    
+    pose1 = [0.2, -0.2, 0.2, 1, 0, 0, 0]
+    pose2 = [-0.2, -0.2, 0.2, 1, 0, 0, 0]
+    pose3 = [0.2, -0.2, 0.2, 1, 0, 0, 0.78]
+    pose4 = [0.2, -0.2, 0.2, 0, 1, 0, 0.78]
+    pose5 = [0.2, -0.2, 0.2, 0, 0, 1, 0.78]
+
+    input("按回车移动到pose1....")
+    print(f"\n移动到位姿1: {pose1}")
+    arm.move_to_pose(pose1, timeout=10, tolerance=0.01)
+    current_pose = arm.get_pose()
+    pose_diff = np.abs(np.array(current_pose) - np.array(pose1))
+    print(f"目标位姿: {pose1}")
+    print(f"实际位姿: {arm.get_pose()}")
+    print(f"误差: {pose_diff}")
+    print(f"最大误差: {np.max(pose_diff):.4f}")
+
+    input("按回车移动到pose2....")
+    print(f"\n移动到位姿2: {pose2}")
+    arm.move_to_pose(pose2, timeout=10, tolerance=0.01)
+    current_pose = arm.get_pose()
+    pose_diff = np.abs(np.array(current_pose) - np.array(pose2))
+    print(f"目标位姿: {pose2}")
+    print(f"实际位姿: {arm.get_pose()}")
+    print(f"误差: {pose_diff}")
+    print(f"最大误差: {np.max(pose_diff):.4f}")
+
+    input("按回车移动到pose3....")
+    print(f"\n移动到位姿3: {pose3}")
+    arm.move_to_pose(pose3, timeout=10, tolerance=0.01)
+    current_pose = arm.get_pose()
+    pose_diff = np.abs(np.array(current_pose) - np.array(pose3))
+    print(f"目标位姿: {pose3}")
+    print(f"实际位姿: {arm.get_pose()}")
+    print(f"误差: {pose_diff}")
+    print(f"最大误差: {np.max(pose_diff):.4f}")
+
+    input("按回车移动到pose4....")
+    print(f"\n移动到位姿4: {pose4}")
+    arm.move_to_pose(pose4, timeout=10, tolerance=0.01)
+    current_pose = arm.get_pose()
+    pose_diff = np.abs(np.array(current_pose) - np.array(pose4))
+    print(f"目标位姿: {pose4}")
+    print(f"实际位姿: {arm.get_pose()}")
+    print(f"误差: {pose_diff}")
+    print(f"最大误差: {np.max(pose_diff):.4f}")
+
+    input("按回车移动到pose5....")
+    print(f"\n移动到位姿5: {pose5}")
+    arm.move_to_pose(pose5, timeout=10, tolerance=0.01)
+    current_pose = arm.get_pose()
+    pose_diff = np.abs(np.array(current_pose) - np.array(pose5))
+    print(f"目标位姿: {pose5}")
+    print(f"实际位姿: {arm.get_pose()}")
+    print(f"误差: {pose_diff}")
+    print(f"最大误差: {np.max(pose_diff):.4f}")
 
 def test_joints_high_frequency_control(arm):
     """测试高频关节控制"""
@@ -201,10 +262,10 @@ def test_tuning_rotation_reachable(arm):
     """测试旋转可达性调整 - 轴角格式"""
     wsy_print("=== 测试旋转可达性调整 (轴角格式) ===")
     # 轴角格式测试位姿: [x, y, z, ax, ay, az, angle]
-    # pose = [0.2, -0.2, 0.2, 1, 0, 0, 1.7]  # 绕Z轴旋转1.7弧度
-    pose = [-0.3, -0.3, 0.3, 1, 0, 0, 0.78]
-    # pose = [-0.1, -0.3, 0.3, 0, 1, 0, 0.78]
-    # pose = [-0.1, -0.3, 0.3, 0, 0, 1, 0.78]
+    # pose = [-0.2, -0.2, 0.2, 1, 0, 0, 0.78]  # 绕Z轴旋转1.7弧度
+    # pose = [-0.2, -0.2, 0.2, 0, 1, 0, 0.78]  # 绕Z轴旋转1.7弧度
+    pose = [-0.2, -0.2, 0.2, 0, 0, 1, 0.78]  # 绕Z轴旋转1.7弧度
+
     # print(f"测试位姿 (轴角): {pose}")
     wsy_print(f"测试位姿 (轴角): {pose}")
     
@@ -230,29 +291,65 @@ def test_tuning_rotation_reachable(arm):
     ik_result2 = arm.cacul_ik_joints_within_limits_from_pose(pose2)
     wsy_print(f"调整后逆解结果: {ik_result2}")
 
-def test_direction_movement(arm):
-    """测试方向移动"""
-    print("=== 测试方向移动 ===")
+def test_absolute_direction_movement(arm):
+    """测试绝对方向移动"""
+    print("=== 测试绝对方向移动 ===")
+    input("按回车移动到初始位姿....")
+    pose_init = [0.2, -0.2, 0.2, 1, 0, 0, 0.78]
+    arm.move_to_pose(pose_init)
+    vx = [0.05, 0, 0]
+    vy = [0, 0.05, 0]
+    vz = [0, 0, 0.05]
+    vx1 = [-0.05, 0, 0]
+    vy1 = [0, -0.05, 0]
+    vz1 = [0, 0, -0.05]
+
+    input("按回车往x方向移动0.05m....")
+    arm.move_to_direction_abs(vx)
+    input("按回车往x方向移动-0.05m....")
+    arm.move_to_direction_abs(vx1)
+
+    input("按回车往y方向移动0.05m....")
+    arm.move_to_direction_abs(vy)
+    input("按回车往y方向移动-0.05m....")
+    arm.move_to_direction_abs(vy1)
+
+    input("按回车往z方向移动0.05m....")
+    arm.move_to_direction_abs(vz)
+    input("按回车往z方向移动-0.05m....")
+    arm.move_to_direction_abs(vz1)
+
+def test_relative_direction_movement(arm):
+    """测试绝对方向移动"""
+    print("=== 测试绝对方向移动 ===")
+    input("按回车移动到初始位姿....")
+    pose_init = [0.2, -0.2, 0.2, 1, 0, 0, 0.78]
+    arm.move_to_pose(pose_init)
     
-    print("当前位姿:")
-    current_pose = arm.get_pose()
-    print(f"  {current_pose}")
-    
-    # 测试绝对方向移动
-    print("\n测试绝对方向移动 (+X方向 0.05m)...")
-    vector_abs = [0.05, 0, 0]
-    success = arm.move_to_direction_abs(vector_abs)
-    print(f"绝对移动结果: {success}")
-    print(f"移动后位姿: {arm.get_pose()}")
-    
-    input("按回车继续测试相对方向移动...")
-    
-    # 测试相对方向移动
-    print("\n测试相对方向移动 (相对+Y方向 0.05m)...")
-    vector_rel = [0, 0.05, 0]
-    success = arm.move_to_direction_relative(vector_rel)
-    print(f"相对移动结果: {success}")
-    print(f"移动后位姿: {arm.get_pose()}")
+    # 相对方向移动
+    vx = [0.05, 0, 0]
+    vy = [0, 0.05, 0]
+    vz = [0, 0, 0.05]
+    vx1 = [-0.05, 0, 0]
+    vy1 = [0, -0.05, 0]
+    vz1 = [0, 0, -0.05]
+
+    input("按回车往x方向移动0.05m....")
+    arm.move_to_direction_relative(vx)
+    input("按回车往x方向移动-0.05m....")
+    arm.move_to_direction_relative(vx1)
+
+    input("按回车往y方向移动0.05m....")
+    arm.move_to_direction_relative(vy)
+    input("按回车往y方向移动-0.05m....")
+    arm.move_to_direction_relative(vy1)
+
+    input("按回车往z方向移动0.05m....")
+    arm.move_to_direction_relative(vz)
+    input("按回车往z方向移动-0.05m....")
+    arm.move_to_direction_relative(vz1)
+
+
 
 def main(): 
     """测试主函数"""
@@ -276,19 +373,21 @@ def main():
             '6': ('移动到Up', test_move_to_up_pose),
             '7': ('移动到Zero', test_move_to_joint_zero_pose),
             '8': ('关节精度测试', test_joints_precision),
-            '9': ('高频控制', test_joints_high_frequency_control),
-            '10': ('获取关节', test_get_joints),
-            '11': ('获取位姿 (轴角)', test_get_pose),
-            '12': ('旋转可达性调整 (轴角)', test_tuning_rotation_reachable),
-            '13': ('方向移动测试', test_direction_movement),
+            '9': ('pose精度测试', test_pose_precision),
+            '10': ('高频控制', test_joints_high_frequency_control),
+            '11': ('获取关节', test_get_joints),
+            '12': ('获取位姿 (轴角)', test_get_pose),
+            '13': ('旋转可达性调整 (轴角)', test_tuning_rotation_reachable),
+            '14': ('绝对方向移动测试', test_absolute_direction_movement),
+            '15': ('相对方向移动测试', test_relative_direction_movement),
         }
         
         print("\n可用测试：")
         for key, (name, _) in tests.items():
             print(f"  {key}: {name}")
         
-        # choice = input(f"\n请选择测试 (1-{len(tests)}, 回车跳过): ").strip()
-        choice = "12"
+        choice = input(f"\n请选择测试 (1-{len(tests)}, 回车跳过): ").strip()
+        # choice = "12"
         
         if choice in tests:
             test_name, test_func = tests[choice]

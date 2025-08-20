@@ -153,25 +153,25 @@ class Arm:
             # 计算当前误差
             current_errors = [target_joints[i] - current[i] for i in range(len(current))]
             diff_errors = [current_errors[i] - last_errors[i] for i in range(len(current_errors))]
-            print(f"last_errors   : {last_errors}")
-            print(f"\ncurrent_errors: {current_errors}")
-            print(f"diff_errors   : {diff_errors}") 
+            # print(f"last_errors   : {last_errors}")
+            # print(f"\ncurrent_errors: {current_errors}")
+            # print(f"diff_errors   : {diff_errors}") 
             
             # 检查是否已到达容差范围
             if all(abs(err) < tolerance for err in current_errors):
-                print(f"all(err < tolerance for err in current_errors)")
-                print(f"current_errors: {current_errors}")
+                # print(f"all(err < tolerance for err in current_errors)")
+                # print(f"current_errors: {current_errors}")
                 return True
             
             # 检查误差是否没有减小，如果没有减小则调整目标
             for i in range(len(current_errors)):
                 if abs(current_errors[i]) > tolerance:
                     if abs(current_errors[i]) >= abs(last_errors[i]):
-                        print("joint i: ", i, " stop moving !")
+                        # print("joint i: ", i, " stop moving !")
                         # 误差没有减小，调整目标值
                         error_direction = 1 if current_errors[i] > 0 else -1
                         adjustment = tolerance * error_direction
-                        print(f"adjustment: {adjustment}")
+                        # print(f"adjustment: {adjustment}")
                         adjusted_targets[i] += adjustment
 
             # 更新上一次误差
@@ -180,12 +180,12 @@ class Arm:
             key = 20
             for i in range(len(adjusted_targets)):
                 if abs(adjusted_targets[i] - target_joints[i]) > tolerance * key:
-                    print(f"joint{i} > tolerance * {key}")
+                    # print(f"joint{i} > tolerance * {key}")
                     adjusted_targets[i] = target_joints[i] + tolerance * key * error_direction
 
             # 发送新的目标位置
-            print(f"original_targets: {target_joints}")
-            print(f"adjusted_targets: {adjusted_targets}")
+            # print(f"original_targets: {target_joints}")
+            # print(f"adjusted_targets: {adjusted_targets}")
             if not self._out_joint_limits(adjusted_targets):
                 self._arm_write_joints(adjusted_targets)
 
@@ -468,7 +468,7 @@ class Arm:
             trajectory_points.append(point.tolist())
         
         logger.info(f"distance({distance:.3f}) m, steps({steps}), trajectory_points({len(trajectory_points)})")
-        print(f"trajectory_points: {trajectory_points}")
+        # print(f"trajectory_points: {trajectory_points}")
         
         # 依次运动到每个轨迹点
         for i, point in enumerate(trajectory_points):
@@ -554,9 +554,9 @@ class Arm:
             logger.error(f"rotation_axis_angle length({len(rotation_axis_angle)}) != 4")
             return rotation_axis_angle
 
-        print(f"rotation_axis_angle: {rotation_axis_angle}")
-        print(f"angle: {angle}")
-        print(f"axis: {axis}")
+        # print(f"rotation_axis_angle: {rotation_axis_angle}")
+        # print(f"angle: {angle}")
+        # print(f"axis: {axis}")
 
         ax, ay, az, original_angle = rotation_axis_angle
         base_axis = np.array([ax, ay, az], dtype=float)
@@ -590,11 +590,11 @@ class Arm:
         
         theta_position = self._get_theta_from_position(position)
         theta_rotation = self._get_theta_from_rotation(rotation_axis_angle)
-        print(f"theta_position: {theta_position * 180 / np.pi}")
-        print(f"theta_rotation: {theta_rotation * 180 / np.pi}")
+        # print(f"theta_position: {theta_position * 180 / np.pi}")
+        # print(f"theta_rotation: {theta_rotation * 180 / np.pi}")
 
         diff = abs(theta_position - theta_rotation)
-        print(f"diff: {diff * 180 / np.pi}")
+        # print(f"diff: {diff * 180 / np.pi}")
         if diff > 0.0001:
             logger.warning(f"rotation not reachable: theta_position({theta_position * 180 / np.pi}), theta_rotation({theta_rotation * 180 / np.pi}), diff({diff * 180 / np.pi})")
             return False
@@ -618,27 +618,27 @@ class Arm:
             position = pose[:3]
             rotation_axis_angle = pose[3:7]
             
-            print(f"pose: {pose}")
+            # print(f"pose: {pose}")
             
             # 检查是否需要调整
             if self._is_rotation_reachable(pose):
-                print("is_rotation_reachable: True")
+                # print("is_rotation_reachable: True")
                 return pose  # 已经可达，不需要调整
             
             # 计算调整角度
             theta_position = self._get_theta_from_position(position)
             theta_rotation = self._get_theta_from_rotation(rotation_axis_angle)
             theta_diff = theta_position - theta_rotation
-            print(f"theta_diff: {theta_diff}")
-            print(f"theta_position: {theta_position}")
-            print(f"theta_rotation: {theta_rotation}")
+            # print(f"theta_diff: {theta_diff}")
+            # print(f"theta_position: {theta_position}")
+            # print(f"theta_rotation: {theta_rotation}")
 
             # 调整旋转
             new_rotation_axis_angle = self._roll_rotation(rotation_axis_angle, theta_diff)
-            print(f"new_rotation_axis_angle: {new_rotation_axis_angle}")
+            # print(f"new_rotation_axis_angle: {new_rotation_axis_angle}")
 
             new_pose = list(position) + new_rotation_axis_angle
-            print(f"new_pose: {new_pose}")
+            # print(f"new_pose: {new_pose}")
             
             # 验证调整结果
             if self._is_rotation_reachable(new_pose):
